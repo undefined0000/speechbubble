@@ -9,18 +9,20 @@ description = "Automatic speech bubble insertion for illustration workflows"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "numpy==2.3.1",
-  "opencv-python-headless==4.11.0.86",
-  "Pillow==11.2.1",
   "fastapi==0.115.14",
   "uvicorn[standard]==0.35.0",
   "python-multipart==0.0.22",
   "pydantic==2.11.7",
-  "gradio==6.8.0",
-  "huggingface-hub==0.36.2",
 ]
 
 [project.optional-dependencies]
+ai = [
+  "numpy==2.3.1",
+  "opencv-python-headless==4.11.0.86",
+  "Pillow==11.2.1",
+  "gradio==6.8.0",
+  "huggingface-hub==0.36.2",
+]
 dev = [
   "pytest>=8.2",
   "httpx>=0.27",
@@ -37,6 +39,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+speechbubble = ["static/*.html", "static/*.js"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
