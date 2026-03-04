@@ -1,0 +1,4 @@
+[console_scripts]
+speechbubble = speechbubble.cli:main
+speechbubble-api = speechbubble.api:run
+speechbubble-ui = speechbubble.ui:main

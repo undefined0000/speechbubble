@@ -1,0 +1,13 @@
+services:
+  speechbubble:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: speechbubble-app
+    ports:
+      - "8000:8000"
+    environment:
+      - ENABLE_GRADIO=1
+      - HOST=0.0.0.0
+      - PORT=8000
+    restart: unless-stopped

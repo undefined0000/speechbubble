@@ -1,0 +1,146 @@
+Metadata-Version: 2.4
+Name: speechbubble
+Version: 0.1.0
+Summary: Automatic speech bubble insertion for illustration workflows
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.26
+Requires-Dist: opencv-python>=4.10
+Requires-Dist: Pillow>=10.0
+Requires-Dist: fastapi>=0.115
+Requires-Dist: uvicorn[standard]>=0.30
+Requires-Dist: python-multipart>=0.0.9
+Requires-Dist: pydantic>=2.8
+Requires-Dist: gradio>=4.44
+Requires-Dist: huggingface-hub<1.0,>=0.33.5
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2; extra == "dev"
+Requires-Dist: httpx>=0.27; extra == "dev"
+Requires-Dist: ruff>=0.6; extra == "dev"
+
+# speechbubble
+
+同人誌制作向けに、キャラクター画像へ吹き出しを自動挿入するツールです。  
+現在は MVP として以下を実装しています。
+
+- 顔検出（OpenCV Haar Cascade）
+- 吹き出し候補生成（8方向 + 複数距離）
+- スコア最適化（顔重なり、障害物、距離、読み順、吹き出し衝突）
+- 吹き出し描画（楕円/角丸 + しっぽ + テキスト）
+- CLI / FastAPI / Gradio UI
+- Docker デプロイ
+
+## 1. セットアップ
+
+```bash
+python -m pip install -e .
+```
+
+開発用:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+## 2. まず動かす
+
+サンプル画像生成:
+
+```bash
+python examples/generate_sample.py
+```
+
+CLI 実行:
+
+```bash
+speechbubble ^
+  --input examples/sample_input.png ^
+  --output examples/sample_output.png ^
+  --text-file examples/dialogues.json ^
+  --json-output examples/sample_output.json ^
+  --face-hint 340,300,260,260 ^
+  --face-hint 1020,270,280,280
+```
+
+`--face-hint` は `x,y,w,h` 形式で複数指定できます。  
+指定しない場合は自動顔検出を使います。
+
+## 3. API
+
+起動:
+
+```bash
+speechbubble-api
+```
+
+- Health check: `GET /health`
+- 推論: `POST /v1/process`
+
+`/v1/process` は multipart/form-data を受け取ります:
+
+- `image`: 画像ファイル
+- `payload`: JSON 文字列
+
+`payload` 例:
+
+```json
+{
+  "dialogues": [
+    { "text": "準備できた？", "speaker_id": 0 },
+    { "text": "うん、始めよう！", "speaker_id": 1 }
+  ],
+  "font_size": 42,
+  "max_chars_per_line": 14,
+  "reading_order": "rtl",
+  "include_image_base64": true,
+  "face_hints": [[340, 300, 260, 260], [1020, 270, 280, 280]]
+}
+```
+
+## 4. Gradio UI
+
+単体起動:
+
+```bash
+speechbubble-ui
+```
+
+API 経由で起動する場合は、`speechbubble-api` 実行後に `/ui` へアクセスしてください。
+
+## 5. Docker デプロイ
+
+```bash
+docker compose -f deploy/docker-compose.yml up --build
+```
+
+起動後:
+
+- API: `http://localhost:8000/health`
+- UI: `http://localhost:8000/ui`
+
+## 6. 構成
+
+```text
+src/speechbubble/
+  api.py        # FastAPI
+  cli.py        # CLI
+  config.py     # 設定と重み
+  layout.py     # 候補生成と最適化
+  pipeline.py   # 全体オーケストレーション
+  render.py     # 吹き出し描画とテキスト計測
+  schemas.py    # データ構造
+  ui.py         # Gradio
+  vision.py     # 顔検出・障害物マップ
+```
+
+## 7. テスト
+
+```bash
+pytest -q
+```
+
+## 8. 現状の制約
+
+- 顔検出は写実顔に強く、イラストによっては不安定です
+- 日本語組版は簡易改行（`max_chars_per_line`）ベースです
+- ページ全体の読み順最適化は未実装（1画像内のみ）

@@ -1,0 +1,110 @@
+{
+  "faces": [
+    {
+      "x": 340,
+      "y": 300,
+      "w": 260,
+      "h": 260
+    },
+    {
+      "x": 1020,
+      "y": 270,
+      "w": 280,
+      "h": 280
+    }
+  ],
+  "placements": [
+    {
+      "dialogue_index": 0,
+      "text": "準備できた？",
+      "lines": [
+        "準備できた？"
+      ],
+      "rect": {
+        "x": 314,
+        "y": 677,
+        "w": 312,
+        "h": 92
+      },
+      "shape": "ellipse",
+      "anchor": {
+        "x": 470.0,
+        "y": 487.2
+      },
+      "tail_base": {
+        "x": 470.0,
+        "y": 677.0
+      },
+      "tail_tip": {
+        "x": 470.0,
+        "y": 487.2
+      },
+      "speaker_face_id": 0,
+      "score": 193.8205
+    },
+    {
+      "dialogue_index": 1,
+      "text": "うん、始めよう！",
+      "lines": [
+        "うん、始めよう！"
+      ],
+      "rect": {
+        "x": 962,
+        "y": 778,
+        "w": 396,
+        "h": 92
+      },
+      "shape": "ellipse",
+      "anchor": {
+        "x": 1160.0,
+        "y": 471.6
+      },
+      "tail_base": {
+        "x": 1160.0,
+        "y": 778.0
+      },
+      "tail_tip": {
+        "x": 1160.0,
+        "y": 471.6
+      },
+      "speaker_face_id": 1,
+      "score": 298.7586
+    },
+    {
+      "dialogue_index": 2,
+      "text": "まずはMVPを完成させるよ。",
+      "lines": [
+        "まずはMVPを完成させるよ。"
+      ],
+      "rect": {
+        "x": 854,
+        "y": 874,
+        "w": 611,
+        "h": 92
+      },
+      "shape": "rounded",
+      "anchor": {
+        "x": 1160.0,
+        "y": 471.6
+      },
+      "tail_base": {
+        "x": 1160.0,
+        "y": 874.0
+      },
+      "tail_tip": {
+        "x": 1160.0,
+        "y": 471.6
+      },
+      "speaker_face_id": 1,
+      "score": 482.7731
+    }
+  ],
+  "debug": {
+    "face_count": 2,
+    "dialogue_count": 3,
+    "reading_order": "rtl",
+    "font_size": 42,
+    "max_chars_per_line": 14
+  },
+  "output_path": "C:\\Users\\sugar\\Documents\\speechbubble\\examples\\sample_output.png"
+}

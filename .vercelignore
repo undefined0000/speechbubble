@@ -1,0 +1,8 @@
+.git
+.pytest_cache
+.ruff_cache
+deploy
+tests
+docs
+examples/sample_output.png
+examples/sample_output.json
