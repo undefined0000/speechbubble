@@ -16,3 +16,5 @@ Thumbs.db
 # Local example outputs
 examples/sample_output.json
 examples/sample_output.png
+
+.vercel
