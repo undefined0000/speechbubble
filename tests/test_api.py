@@ -50,6 +50,45 @@ def test_process_endpoint_multipart_success() -> None:
     assert body["image_base64"] is None
 
 
+def test_process_endpoint_auto_dialogues_when_empty() -> None:
+    client = TestClient(app)
+    payload = {
+        "dialogues": None,
+        "auto_dialogues": True,
+        "max_auto_bubbles": 3,
+        "include_image_base64": False,
+        "face_hints": [[130, 170, 190, 190], [640, 160, 220, 220]],
+    }
+    response = client.post(
+        "/v1/process",
+        files={
+            "image": ("sample.png", _make_sample_png(), "image/png"),
+            "payload": (None, json.dumps(payload)),
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["placements"]) == 2
+
+
+def test_process_endpoint_requires_dialogues_if_auto_disabled() -> None:
+    client = TestClient(app)
+    payload = {
+        "dialogues": None,
+        "auto_dialogues": False,
+        "include_image_base64": False,
+    }
+    response = client.post(
+        "/v1/process",
+        files={
+            "image": ("sample.png", _make_sample_png(), "image/png"),
+            "payload": (None, json.dumps(payload)),
+        },
+    )
+    assert response.status_code == 400
+    assert "auto_dialogues=false" in response.json()["detail"]
+
+
 def test_process_endpoint_rejects_non_image_upload() -> None:
     client = TestClient(app)
     payload = {"dialogues": [{"text": "hello"}]}

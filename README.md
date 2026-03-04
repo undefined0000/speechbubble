@@ -78,12 +78,17 @@ Example payload:
     { "text": "Ready?", "speaker_id": 0 },
     { "text": "Lets start.", "speaker_id": 1 }
   ],
+  "auto_dialogues": true,
+  "max_auto_bubbles": 4,
   "font_size": 42,
   "max_chars_per_line": 14,
   "reading_order": "rtl",
   "include_image_base64": true,
   "face_hints": [[340, 300, 260, 260], [1020, 270, 280, 280]]
 }
+
+`face_hints` is optional.  
+If `dialogues` is empty and `auto_dialogues` is `true`, the server creates bubbles automatically from detected faces.
 ```
 
 ## 4. Deploy on Vercel

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .pipeline import SpeechBubbleEngine
 from .schemas import DialogueSpec, Rect
+from .vision import detect_faces
 
 
 class DialoguePayload(BaseModel):
@@ -24,7 +25,9 @@ class DialoguePayload(BaseModel):
 
 
 class ProcessPayload(BaseModel):
-    dialogues: list[DialoguePayload] = Field(min_length=1, max_length=20)
+    dialogues: list[DialoguePayload] | None = None
+    auto_dialogues: bool = True
+    max_auto_bubbles: int = Field(default=4, ge=1, le=8)
     font_size: int = Field(default=42, ge=12, le=128)
     max_chars_per_line: int = Field(default=14, ge=4, le=40)
     reading_order: Literal["rtl", "ltr"] = "rtl"
@@ -40,7 +43,7 @@ class ProcessResponse(BaseModel):
     image_base64: str | None = None
 
 
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 HOME_HTML = """<!doctype html>
@@ -57,6 +60,8 @@ HOME_HTML = """<!doctype html>
       --muted: #61708a;
       --accent: #0f62fe;
       --border: #d7deed;
+      --error: #b42318;
+      --ok: #046c4e;
     }
     * { box-sizing: border-box; }
     body {
@@ -111,6 +116,10 @@ HOME_HTML = """<!doctype html>
       font-weight: 700;
       cursor: pointer;
     }
+    button[disabled] {
+      opacity: 0.65;
+      cursor: wait;
+    }
     .hint { font-size: 0.9rem; color: var(--muted); }
     .result-wrap { display: grid; gap: 12px; }
     img {
@@ -118,6 +127,7 @@ HOME_HTML = """<!doctype html>
       border: 1px solid var(--border);
       border-radius: 12px;
       display: none;
+      background: #fff;
     }
     pre {
       margin: 0;
@@ -130,16 +140,38 @@ HOME_HTML = """<!doctype html>
       min-height: 72px;
       overflow: auto;
     }
-    .ok { color: #046c4e; font-weight: 700; }
-    .err { color: #b42318; font-weight: 700; }
+    .ok { color: var(--ok); font-weight: 700; }
+    .err { color: var(--error); font-weight: 700; }
+    .status-inline { margin-top: 10px; }
+    details {
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      margin-top: 10px;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #2c3e64;
+    }
     a { color: var(--accent); }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .checkbox-row input[type=checkbox] {
+      width: auto;
+      margin: 0;
+    }
   </style>
 </head>
 <body>
   <main>
     <section class="card">
       <h1>SpeechBubble Auto Inserter</h1>
-      <p>画像とセリフを送ると、吹き出し入り画像を生成します。</p>
+      <p>画像から顔を自動検出して、吹き出しを配置します。</p>
       <p class="hint">API docs: <a href="/docs">/docs</a> / health: <a href="/health">/health</a></p>
     </section>
 
@@ -147,12 +179,15 @@ HOME_HTML = """<!doctype html>
       <form id="bubble-form">
         <label for="image">画像ファイル</label>
         <input id="image" name="image" type="file" accept="image/*" required>
+        <p class="hint">iPhone の HEIC は未対応です。JPEG/PNG にしてからアップロードしてください。</p>
 
         <label for="dialogues">セリフ（1行 = 1吹き出し）</label>
-        <textarea id="dialogues" name="dialogues" placeholder="こんにちは！&#10;じゃあ始めよう。">こんにちは！\nそれじゃ、始めよう。</textarea>
+        <textarea id="dialogues" name="dialogues" placeholder="空欄なら自動で吹き出し数を決定します"></textarea>
 
-        <label for="faceHints">face_hints（任意、1行 = x,y,w,h）</label>
-        <textarea id="faceHints" name="faceHints" placeholder="120,140,180,180"></textarea>
+        <div class="checkbox-row">
+          <input id="autoDialogues" name="autoDialogues" type="checkbox" checked>
+          <label for="autoDialogues" style="margin:0;font-weight:500;">セリフ未入力時は自動で吹き出し数を決める</label>
+        </div>
 
         <div class="row">
           <div>
@@ -174,15 +209,24 @@ HOME_HTML = """<!doctype html>
             </select>
           </div>
           <div>
-            <label>&nbsp;</label>
-            <button type="submit">生成する</button>
+            <label for="maxAuto">自動吹き出し上限</label>
+            <input id="maxAuto" name="maxAuto" type="number" min="1" max="8" value="4">
           </div>
         </div>
+
+        <details>
+          <summary>高度設定（通常は不要）</summary>
+          <label for="faceHints">face_hints（1行 = x,y,w,h）</label>
+          <textarea id="faceHints" name="faceHints" placeholder="120,140,180,180"></textarea>
+          <p class="hint">face_hints は手動で顔位置を指定するオプションです。通常は空欄でOKです。</p>
+        </details>
+
+        <button id="submitBtn" type="submit">生成する</button>
+        <div id="statusInline" class="status-inline hint">待機中</div>
       </form>
     </section>
 
-    <section class="card result-wrap">
-      <div id="status" class="hint">待機中</div>
+    <section class="card result-wrap" id="resultCard">
       <img id="resultImage" alt="result image">
       <pre id="resultMeta">{}</pre>
     </section>
@@ -190,38 +234,93 @@ HOME_HTML = """<!doctype html>
 
   <script>
     const form = document.getElementById("bubble-form");
-    const statusNode = document.getElementById("status");
+    const statusNode = document.getElementById("statusInline");
     const imageNode = document.getElementById("resultImage");
     const metaNode = document.getElementById("resultMeta");
+    const resultCard = document.getElementById("resultCard");
+    const submitBtn = document.getElementById("submitBtn");
+
+    function setStatus(text, kind) {
+      statusNode.className = "status-inline " + (kind || "hint");
+      statusNode.textContent = text;
+    }
 
     function parseFaceHints(raw) {
       const lines = raw.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
       return lines.map((line) => {
         const parts = line.split(",").map(v => Number(v.trim()));
         if (parts.length !== 4 || parts.some(Number.isNaN)) {
-          throw new Error("face_hints is invalid. Use x,y,w,h per line.");
+          throw new Error("face_hints の形式が不正です。x,y,w,h を1行ずつ入力してください。");
         }
         return parts;
       });
+    }
+
+    async function loadImageElement(file) {
+      return await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("画像を読み込めませんでした。JPEG/PNG を使ってください。"));
+        img.src = URL.createObjectURL(file);
+      });
+    }
+
+    async function prepareUploadFile(file) {
+      const lower = (file.name || "").toLowerCase();
+      if (file.type === "image/heic" || file.type === "image/heif" || lower.endsWith(".heic") || lower.endsWith(".heif")) {
+        throw new Error("HEIC/HEIF は未対応です。iPhoneで『互換性優先』にするか、JPEG/PNGに変換してください。");
+      }
+      if (!file.type.startsWith("image/")) {
+        throw new Error("画像ファイルを選択してください。");
+      }
+
+      const img = await loadImageElement(file);
+      const maxSide = 1600;
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const targetW = Math.max(1, Math.round(img.width * scale));
+      const targetH = Math.max(1, Math.round(img.height * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        return file;
+      }
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+      if (!blob) {
+        return file;
+      }
+      return new File([blob], "upload.jpg", { type: "image/jpeg" });
+    }
+
+    async function parseResponse(response) {
+      const text = await response.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { detail: text.slice(0, 400) };
+      }
     }
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const file = document.getElementById("image").files[0];
       if (!file) {
-        statusNode.className = "err";
-        statusNode.textContent = "画像を選択してください。";
+        setStatus("画像を選択してください。", "err");
         return;
       }
 
-      const dialogues = document.getElementById("dialogues").value
+      const dialogueLines = document.getElementById("dialogues").value
         .split(/\r?\n/)
         .map(v => v.trim())
-        .filter(Boolean)
-        .map(text => ({ text }));
-      if (!dialogues.length) {
-        statusNode.className = "err";
-        statusNode.textContent = "セリフを1行以上入力してください。";
+        .filter(Boolean);
+      const autoDialogues = document.getElementById("autoDialogues").checked;
+
+      if (!dialogueLines.length && !autoDialogues) {
+        setStatus("セリフを入力するか、自動モードをONにしてください。", "err");
         return;
       }
 
@@ -230,44 +329,51 @@ HOME_HTML = """<!doctype html>
         const rawHints = document.getElementById("faceHints").value.trim();
         faceHints = rawHints ? parseFaceHints(rawHints) : null;
       } catch (err) {
-        statusNode.className = "err";
-        statusNode.textContent = String(err);
+        setStatus(String(err), "err");
         return;
       }
 
-      const payload = {
-        dialogues,
-        font_size: Number(document.getElementById("fontSize").value),
-        max_chars_per_line: Number(document.getElementById("maxChars").value),
-        reading_order: document.getElementById("readingOrder").value,
-        include_image_base64: true,
-        face_hints: faceHints
-      };
-
-      const formData = new FormData();
-      formData.append("image", file);
-      formData.append("payload", JSON.stringify(payload));
-
-      statusNode.className = "hint";
-      statusNode.textContent = "生成中...";
+      submitBtn.disabled = true;
+      setStatus("画像を準備中...", "hint");
       imageNode.style.display = "none";
 
       try {
+        const uploadFile = await prepareUploadFile(file);
+
+        const payload = {
+          dialogues: dialogueLines.length ? dialogueLines.map(text => ({ text })) : null,
+          auto_dialogues: autoDialogues,
+          max_auto_bubbles: Number(document.getElementById("maxAuto").value),
+          font_size: Number(document.getElementById("fontSize").value),
+          max_chars_per_line: Number(document.getElementById("maxChars").value),
+          reading_order: document.getElementById("readingOrder").value,
+          include_image_base64: true,
+          face_hints: faceHints
+        };
+
+        const formData = new FormData();
+        formData.append("image", uploadFile, uploadFile.name || "upload.jpg");
+        formData.append("payload", JSON.stringify(payload));
+
+        setStatus("生成中...（数秒かかることがあります）", "hint");
         const response = await fetch("/v1/process", { method: "POST", body: formData });
-        const body = await response.json();
+        const body = await parseResponse(response);
+
         if (!response.ok) {
           throw new Error(body.detail || "Request failed");
         }
+
         if (body.image_base64) {
           imageNode.src = `data:image/png;base64,${body.image_base64}`;
           imageNode.style.display = "block";
         }
         metaNode.textContent = JSON.stringify(body, null, 2);
-        statusNode.className = "ok";
-        statusNode.textContent = `完了: ${body.elapsed_ms} ms`;
+        setStatus(`完了: ${body.elapsed_ms} ms`, "ok");
+        resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (err) {
-        statusNode.className = "err";
-        statusNode.textContent = String(err);
+        setStatus(String(err), "err");
+      } finally {
+        submitBtn.disabled = false;
       }
     });
   </script>
@@ -276,11 +382,13 @@ HOME_HTML = """<!doctype html>
 """
 
 
-def _decode_upload(content: bytes) -> np.ndarray:
+def _decode_upload(content: bytes, content_type: str) -> np.ndarray:
     array = np.frombuffer(content, dtype=np.uint8)
     image = cv2.imdecode(array, cv2.IMREAD_COLOR)
     if image is None:
-        raise ValueError("Invalid image")
+        if content_type in {"image/heic", "image/heif"}:
+            raise ValueError("HEIC/HEIF is not supported. Please upload JPEG or PNG")
+        raise ValueError("Invalid image. Please upload JPEG or PNG")
     return image
 
 
@@ -303,6 +411,35 @@ def _parse_face_hints(raw_hints: list[list[int]] | None) -> list[Rect] | None:
             raise ValueError("face_hints width and height must be > 0")
         hints.append(Rect(x=x, y=y, w=w, h=h))
     return hints
+
+
+def _resolve_dialogues(
+    request: ProcessPayload,
+    image_bgr: np.ndarray,
+    face_hints: list[Rect] | None,
+) -> tuple[list[DialogueSpec], list[Rect] | None]:
+    if request.dialogues:
+        dialogues = [
+            DialogueSpec(text=item.text, speaker_id=item.speaker_id, style=item.style)
+            for item in request.dialogues
+        ]
+        return dialogues, face_hints
+
+    if not request.auto_dialogues:
+        raise ValueError("dialogues is required when auto_dialogues=false")
+
+    auto_faces = list(face_hints) if face_hints else detect_faces(image_bgr)
+    count = min(request.max_auto_bubbles, len(auto_faces))
+    if count <= 0:
+        count = 1
+
+    dialogues: list[DialogueSpec] = []
+    for idx in range(count):
+        speaker = idx if idx < len(auto_faces) else None
+        dialogues.append(DialogueSpec(text="...", speaker_id=speaker, style="auto"))
+
+    face_source = face_hints if face_hints else (auto_faces if auto_faces else None)
+    return dialogues, face_source
 
 
 def _build_app() -> FastAPI:
@@ -328,6 +465,8 @@ def _build_app() -> FastAPI:
             "fields": ["image (file)", "payload (JSON string)"],
             "payload_example": {
                 "dialogues": [{"text": "Hello"}],
+                "auto_dialogues": True,
+                "max_auto_bubbles": 4,
                 "font_size": 42,
                 "max_chars_per_line": 14,
                 "reading_order": "rtl",
@@ -361,12 +500,9 @@ def _build_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=f"Invalid payload JSON: {exc}") from exc
 
         try:
-            image_bgr = _decode_upload(content)
-            dialogues = [
-                DialogueSpec(text=item.text, speaker_id=item.speaker_id, style=item.style)
-                for item in request.dialogues
-            ]
+            image_bgr = _decode_upload(content, content_type)
             face_hints = _parse_face_hints(request.face_hints)
+            dialogues, resolved_face_hints = _resolve_dialogues(request, image_bgr, face_hints)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -378,7 +514,7 @@ def _build_app() -> FastAPI:
                 font_size=request.font_size,
                 max_chars_per_line=request.max_chars_per_line,
                 reading_order=request.reading_order,
-                face_hints=face_hints,
+                face_hints=resolved_face_hints,
             )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Processing failed: {exc}") from exc
