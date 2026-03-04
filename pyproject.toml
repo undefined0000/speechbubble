@@ -7,7 +7,7 @@ name = "speechbubble"
 version = "0.1.0"
 description = "Automatic speech bubble insertion for illustration workflows"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "numpy==2.3.1",
   "opencv-python-headless==4.11.0.86",
