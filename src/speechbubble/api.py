@@ -46,7 +46,7 @@ class ProcessResponse(BaseModel):
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
-HOME_HTML = """<!doctype html>
+HOME_HTML = r"""<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
