@@ -115,6 +115,7 @@ vercel --prod
 
 After deploy:
 
+- `GET https://<your-domain>/` (mobile-friendly web UI)
 - `GET https://<your-domain>/health`
 - `POST https://<your-domain>/v1/process`
 
