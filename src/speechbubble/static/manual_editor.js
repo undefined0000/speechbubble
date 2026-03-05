@@ -107,6 +107,17 @@ const WOBBLE_LEVELS = [0.85, 1.35];
 const RECENT_TEMPLATE_LIMIT = 5;
 const FONT_FAMILY_KEYS = new Set([
   "auto",
+  "manga-dialog",
+  "manga-narration",
+  "manga-shout",
+  "manga-soft",
+  "manga-hand",
+  "retro-pop",
+  "seinen-cool",
+  "shojo-soft",
+  "neon-impact",
+  "brush",
+  "typewriter",
   "jp-gothic",
   "jp-mincho",
   "classic-serif",
@@ -116,6 +127,17 @@ const FONT_FAMILY_KEYS = new Set([
   "mono",
 ]);
 const FONT_FAMILY_STACKS = {
+  "manga-dialog": '"BIZ UDPGothic", "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif',
+  "manga-narration": '"BIZ UDPMincho", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", "MS PMincho", serif',
+  "manga-shout": '"Arial Black", "Yu Gothic UI Semibold", "BIZ UDPGothic", "Noto Sans JP", "Meiryo", sans-serif',
+  "manga-soft": '"Hiragino Maru Gothic ProN", "M PLUS Rounded 1c", "Zen Maru Gothic", "Yu Gothic UI", "Meiryo", sans-serif',
+  "manga-hand": '"Klee One", "Yomogi", "Hannotate SC", "Comic Sans MS", "Yu Gothic UI", cursive',
+  "retro-pop": '"DFPOP1-W9", "HGMaruGothicMPRO", "HGSoeiKakupoptai", "BIZ UDPGothic", "Yu Gothic UI", sans-serif',
+  "seinen-cool": '"Source Han Sans", "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif',
+  "shojo-soft": '"Kaisei Opti", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", "MS PMincho", serif',
+  "neon-impact": '"Impact", "Arial Black", "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", sans-serif',
+  brush: '"Yuji Syuku", "KouzanBrushFont", "Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", cursive',
+  typewriter: '"Courier Prime", "Courier New", "BIZ UDPMincho", "MS Gothic", monospace',
   "jp-gothic": '"BIZ UDPGothic", "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif',
   "jp-mincho": '"BIZ UDPMincho", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", "MS PMincho", serif',
   "classic-serif": '"Georgia", "Times New Roman", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif',
@@ -156,9 +178,11 @@ function normalizeFontFamily(value) {
 function resolveFontStack(fontFamily, textDirection) {
   const normalized = normalizeFontFamily(fontFamily);
   if (normalized === "auto") {
-    return textDirection === "vertical" ? FONT_FAMILY_STACKS["jp-mincho"] : FONT_FAMILY_STACKS["jp-gothic"];
+    return textDirection === "vertical"
+      ? FONT_FAMILY_STACKS["manga-narration"]
+      : FONT_FAMILY_STACKS["manga-dialog"];
   }
-  return FONT_FAMILY_STACKS[normalized] || FONT_FAMILY_STACKS["jp-gothic"];
+  return FONT_FAMILY_STACKS[normalized] || FONT_FAMILY_STACKS["manga-dialog"];
 }
 
 function normalizeRenderMode(value) {
