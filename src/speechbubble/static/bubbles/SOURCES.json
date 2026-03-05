@@ -1,0 +1,25 @@
+{
+  "policy": "CC0-only",
+  "sources": [
+    {
+      "name": "Speechbubble Project CC0 Template Pack",
+      "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "license": "CC0-1.0",
+      "proofUrl": "https://creativecommons.org/publicdomain/zero/1.0/"
+    },
+    {
+      "name": "Kenney support page",
+      "url": "https://www.kenney.nl/support",
+      "license": "CC0-1.0",
+      "proofUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "note": "Reference source for CC0 asset policy."
+    },
+    {
+      "name": "OpenGameArt Kenney Emotes Pack",
+      "url": "https://opengameart.org/content/emotes-pack",
+      "license": "CC0-1.0",
+      "proofUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "note": "Reference source for CC0 speech/emote style assets."
+    }
+  ]
+}

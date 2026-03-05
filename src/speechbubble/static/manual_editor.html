@@ -6,111 +6,136 @@
   <title>SpeechBubble Manual Editor</title>
   <style>
     :root {
-      --bg: #eef2fb;
+      --bg: #ecf1fb;
       --panel: #ffffff;
-      --ink: #172033;
-      --sub: #5b6b8b;
-      --line: #d7deef;
+      --ink: #18263b;
+      --sub: #5a6d8f;
+      --line: #d8e1f2;
       --accent: #0b5fff;
-      --danger: #c53333;
       --ok: #117755;
+      --warn: #9a6c00;
+      --err: #b33636;
     }
+
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       color: var(--ink);
-      background: radial-gradient(circle at 0% 0%, #dde8ff 0%, var(--bg) 50%);
-      font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif;
+      background: radial-gradient(circle at 0% 0%, #d9e8ff 0%, var(--bg) 48%);
+      font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
     }
+
     .page {
-      max-width: 1240px;
+      max-width: 1380px;
       margin: 0 auto;
       padding: 14px;
       display: grid;
       gap: 12px;
     }
+
     .hero {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 16px;
       padding: 12px 14px;
-      box-shadow: 0 12px 25px rgba(22, 43, 95, 0.08);
+      box-shadow: 0 12px 24px rgba(24, 38, 68, 0.08);
     }
+
     .hero h1 {
       margin: 0 0 6px;
-      font-size: 1.1rem;
+      font-size: 1.08rem;
     }
+
     .hero p {
       margin: 0;
       color: var(--sub);
-      line-height: 1.45;
-      font-size: 0.93rem;
+      font-size: 0.92rem;
+      line-height: 1.5;
     }
+
     .layout {
       display: grid;
-      grid-template-columns: minmax(0, 1.65fr) minmax(310px, 0.9fr);
+      grid-template-columns: minmax(0, 1.85fr) minmax(330px, 1fr);
       gap: 12px;
     }
-    @media (max-width: 980px) {
-      .layout { grid-template-columns: 1fr; }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
     }
+
     .card {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 16px;
       padding: 12px;
-      box-shadow: 0 12px 24px rgba(19, 38, 77, 0.08);
+      box-shadow: 0 12px 24px rgba(24, 38, 68, 0.08);
     }
+
     .toolbar {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       margin-bottom: 10px;
     }
-    button, select, input[type=number], input[type=color], input[type=range], textarea {
+
+    button,
+    input,
+    textarea,
+    select {
       font: inherit;
+      color: var(--ink);
       border: 1px solid var(--line);
       border-radius: 10px;
-      color: var(--ink);
-      background: #fff;
+      background: #ffffff;
     }
+
     button {
       cursor: pointer;
       padding: 8px 10px;
       font-weight: 600;
-      background: linear-gradient(180deg, #fff 0%, #f5f8ff 100%);
+      background: linear-gradient(180deg, #ffffff 0%, #f5f8ff 100%);
     }
+
     button.primary {
-      color: #fff;
-      border-color: var(--accent);
+      color: #ffffff;
       background: var(--accent);
+      border-color: var(--accent);
     }
+
     button.danger {
-      color: #fff;
-      border-color: var(--danger);
-      background: var(--danger);
+      color: #ffffff;
+      background: var(--err);
+      border-color: var(--err);
     }
+
     button:disabled {
       opacity: 0.55;
       cursor: not-allowed;
     }
+
     .toolbar .grow {
       flex: 1;
-      min-width: 130px;
+      min-width: 180px;
     }
+
     .zoom-wrap {
       display: flex;
       align-items: center;
       gap: 7px;
-      padding: 0 6px;
       border: 1px solid var(--line);
       border-radius: 10px;
-      background: #fff;
+      background: #ffffff;
       min-width: 180px;
+      padding: 0 6px;
     }
-    .zoom-wrap input[type=range] {
+
+    .zoom-wrap input[type="range"] {
       width: 100%;
     }
+
     .canvas-viewport {
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -127,67 +152,99 @@
       position: relative;
       touch-action: none;
     }
+
     #editorCanvas {
       display: block;
       margin: 0 auto;
       background: transparent;
       touch-action: none;
     }
+
     .empty {
       position: absolute;
       inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
+      text-align: center;
       color: var(--sub);
       pointer-events: none;
-      text-align: center;
       padding: 14px;
       line-height: 1.5;
       font-size: 0.93rem;
     }
+
     .status {
       margin-top: 8px;
       padding: 8px 10px;
-      border-radius: 10px;
       border: 1px solid var(--line);
-      font-size: 0.9rem;
+      border-radius: 10px;
       color: var(--sub);
-      background: #fff;
+      background: #ffffff;
+      font-size: 0.9rem;
     }
-    .status.ok { color: var(--ok); border-color: #9fd2bd; background: #effbf5; }
-    .status.err { color: var(--danger); border-color: #f0b9b9; background: #fff4f4; }
+
+    .status.ok {
+      color: var(--ok);
+      border-color: #9fd2bd;
+      background: #effbf5;
+    }
+
+    .status.warn {
+      color: var(--warn);
+      border-color: #f1d38f;
+      background: #fff9eb;
+    }
+
+    .status.err {
+      color: var(--err);
+      border-color: #f0b9b9;
+      background: #fff4f4;
+    }
+
     .panel h2 {
       margin: 10px 0 8px;
-      font-size: 0.98rem;
+      font-size: 0.96rem;
     }
+
     .panel p {
       margin: 0;
       color: var(--sub);
-      font-size: 0.9rem;
-      line-height: 1.4;
+      font-size: 0.88rem;
+      line-height: 1.45;
     }
+
     .field-grid {
       display: grid;
-      gap: 8px;
       grid-template-columns: 1fr 1fr;
+      gap: 8px;
     }
-    .field-grid.single { grid-template-columns: 1fr; }
+
+    .field-grid.single {
+      grid-template-columns: 1fr;
+    }
+
     .field label {
       display: block;
       margin: 0 0 4px;
       color: var(--sub);
-      font-size: 0.83rem;
+      font-size: 0.81rem;
       font-weight: 600;
     }
-    input[type=number], select, textarea {
+
+    input[type="number"],
+    input[type="text"],
+    textarea,
+    select {
       width: 100%;
       padding: 7px 8px;
     }
+
     textarea {
-      min-height: 84px;
+      min-height: 86px;
       resize: vertical;
     }
+
     .row {
       display: flex;
       align-items: center;
@@ -195,105 +252,175 @@
       margin-top: 8px;
       flex-wrap: wrap;
     }
+
     .row.tight {
       gap: 4px;
       margin-top: 0;
     }
-    .row input[type=checkbox] {
+
+    .row input[type="checkbox"] {
       width: auto;
       margin: 0;
     }
+
+    .opacity-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .opacity-row input[type="range"] {
+      flex: 1;
+      width: 100%;
+    }
+
+    .opacity-row strong {
+      min-width: 40px;
+      text-align: right;
+      color: var(--sub);
+      font-size: 0.84rem;
+    }
+
+    .template-tools {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .template-grid {
+      margin-top: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      height: 280px;
+      overflow: auto;
+      padding: 6px;
+      display: grid;
+      gap: 6px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      background: #ffffff;
+    }
+
+    @media (max-width: 560px) {
+      .template-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    .template-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 4px;
+      display: grid;
+      gap: 4px;
+      background: #f9fbff;
+      font-size: 0.72rem;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .template-card.active {
+      border-color: var(--accent);
+      background: #eaf1ff;
+    }
+
+    .template-card svg {
+      width: 100%;
+      height: 58px;
+      display: block;
+    }
+
+    .template-meta {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--sub);
+      font-size: 0.74rem;
+    }
+
     .layer-list {
       margin: 8px 0 0;
       padding: 0;
       list-style: none;
       display: grid;
       gap: 6px;
-      max-height: 240px;
+      max-height: 220px;
       overflow: auto;
     }
+
     .layer-item {
       border: 1px solid var(--line);
       border-radius: 10px;
+      background: #ffffff;
       padding: 6px 8px;
       display: grid;
       grid-template-columns: 1fr auto;
-      align-items: center;
       gap: 6px;
-      background: #fff;
+      align-items: center;
     }
+
     .layer-item.active {
       border-color: #9ec0ff;
       background: #edf4ff;
     }
+
     .layer-name {
-      font-size: 0.88rem;
+      font-size: 0.86rem;
       font-weight: 600;
-      color: var(--ink);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
     .layer-actions {
       display: flex;
       gap: 4px;
     }
+
     .layer-actions button {
+      font-size: 0.78rem;
       padding: 4px 7px;
-      font-size: 0.8rem;
     }
-    .opacity-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .opacity-row input[type=range] {
-      flex: 1;
-      width: 100%;
-    }
-    .opacity-row strong {
-      min-width: 40px;
-      text-align: right;
-      font-size: 0.85rem;
-      color: var(--sub);
-    }
-    .hidden {
-      display: none !important;
-    }
-    .hint {
-      margin-top: 8px;
-      color: var(--sub);
-      font-size: 0.83rem;
-      line-height: 1.4;
-    }
+
     .split {
       margin: 12px 0;
       border: 0;
       border-top: 1px dashed var(--line);
+    }
+
+    .hint {
+      margin-top: 8px;
+      color: var(--sub);
+      font-size: 0.83rem;
+      line-height: 1.45;
+    }
+
+    .hidden {
+      display: none !important;
     }
   </style>
 </head>
 <body>
   <div class="page">
     <section class="hero">
-      <h1>Manual Speech Bubble Editor</h1>
+      <h1>Manual Speech Bubble Editor (CC0 Templates + Rough.js)</h1>
       <p>
-        イラストを読み込み、吹き出しと文字を手動で配置するエディタです。
-        しっぽ位置や透明度、縦書き/横書き、複数形状を調整して自然な漫画レイアウトを作れます。
+        Use this editor to place speech bubbles manually with template and procedural modes.
+        Supports tail adjustment, opacity, horizontal/vertical text, and PNG export.
       </p>
     </section>
 
     <section class="layout">
       <div class="card">
         <div class="toolbar">
-          <button type="button" id="loadImageBtn" class="primary">画像を読み込む</button>
-          <button type="button" id="addBubbleBtn">吹き出し追加</button>
-          <button type="button" id="addTextBtn">テキスト追加</button>
-          <button type="button" id="duplicateBtn">複製</button>
-          <button type="button" id="deleteBtn" class="danger">削除</button>
+          <button type="button" id="loadImageBtn" class="primary">Load Image</button>
+          <button type="button" id="addBubbleBtn">Add Bubble</button>
+          <button type="button" id="addTextBtn">Add Text</button>
+          <button type="button" id="duplicateBtn">Duplicate</button>
+          <button type="button" id="deleteBtn" class="danger">Delete</button>
           <button type="button" id="undoBtn">Undo</button>
           <button type="button" id="redoBtn">Redo</button>
-          <button type="button" id="fitBtn">フィット</button>
+          <button type="button" id="fitBtn">Fit</button>
           <div class="zoom-wrap grow">
             <span>Zoom</span>
             <input id="zoomRange" type="range" min="40" max="260" value="100">
@@ -302,34 +429,76 @@
         </div>
 
         <div class="toolbar">
-          <button type="button" id="saveProjectBtn">プロジェクト保存(JSON)</button>
-          <button type="button" id="loadProjectBtn">プロジェクト読込(JSON)</button>
-          <button type="button" id="exportPngBtn" class="primary">PNGを書き出す</button>
+          <button type="button" id="saveProjectBtn">Save Project (JSON)</button>
+          <button type="button" id="loadProjectBtn">Load Project (JSON)</button>
+          <button type="button" id="exportPngBtn" class="primary">Export PNG</button>
         </div>
 
         <div class="canvas-viewport" id="canvasViewport">
           <canvas id="editorCanvas"></canvas>
-          <div id="emptyState" class="empty">画像を読み込むと編集を開始できます。</div>
+          <div id="emptyState" class="empty">Load an image and start placing bubbles.</div>
         </div>
-        <div id="statusBar" class="status">準備完了</div>
 
+        <div id="statusBar" class="status">Ready.</div>
         <div class="hint">
-          操作: オブジェクトをドラッグ移動 / 右下ハンドルでサイズ変更 / 吹き出しはしっぽハンドルでも調整。
+          Drag to move, drag bottom-right to resize, drag tail handle to adjust tail,
+          and use vertical text for Japanese manga layout.
         </div>
       </div>
 
       <aside class="card panel">
-        <h2>選択中オブジェクト</h2>
-        <p id="noSelectionText">未選択です。キャンバス上のオブジェクトをタップしてください。</p>
+        <h2>Template Library</h2>
+        <p>Select category and search by ID. Pick a card, then apply it to the current bubble.</p>
+
+        <div class="template-tools">
+          <input id="templateSearchInput" type="text" placeholder="search id/category">
+          <select id="templateCategorySelect">
+            <option value="all">all</option>
+            <option value="normal">normal</option>
+            <option value="shout">shout</option>
+            <option value="thought">thought</option>
+            <option value="whisper">whisper</option>
+            <option value="narration">narration</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <button type="button" id="variantRegenerateBtn">Regenerate Variant</button>
+          <button type="button" id="applyTemplateBtn">Apply Template</button>
+        </div>
+
+        <div id="templateGrid" class="template-grid"></div>
+
+        <hr class="split">
+
+        <h2>Selected Object</h2>
+        <p id="noSelectionText">No object selected. Click an object on canvas or in the layer list.</p>
 
         <div id="propPanel" class="hidden">
           <div class="field-grid">
             <div class="field">
-              <label>タイプ</label>
+              <label>Type</label>
               <input id="propKind" type="text" readonly>
             </div>
+            <div class="field">
+              <label>Render Mode</label>
+              <select id="propRenderMode">
+                <option value="procedural">procedural</option>
+                <option value="template">template</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-grid single" style="margin-top: 8px;">
+            <div class="field">
+              <label>Template ID</label>
+              <input id="propTemplateId" type="text" readonly>
+            </div>
+          </div>
+
+          <div class="field-grid" style="margin-top: 8px;">
             <div class="field" id="propShapeWrap">
-              <label>形状</label>
+              <label>Procedural Shape</label>
               <select id="propShape">
                 <option value="ellipse">ellipse</option>
                 <option value="rounded">rounded</option>
@@ -339,57 +508,64 @@
                 <option value="whisper">whisper</option>
               </select>
             </div>
+            <div class="field">
+              <label>Tail Snap</label>
+              <div class="row" style="margin-top: 2px;">
+                <input id="propTailSnap" type="checkbox">
+                <span>Enable</span>
+              </div>
+            </div>
           </div>
 
-          <div class="field-grid single" style="margin-top:8px;">
+          <div class="field-grid single" style="margin-top: 8px;">
             <div class="field">
-              <label>テキスト</label>
+              <label>Text</label>
               <textarea id="propText"></textarea>
             </div>
           </div>
 
-          <div class="field-grid" style="margin-top:8px;">
+          <div class="field-grid" style="margin-top: 8px;">
             <div class="field"><label>X</label><input id="propX" type="number"></div>
             <div class="field"><label>Y</label><input id="propY" type="number"></div>
-            <div class="field"><label>幅</label><input id="propW" type="number" min="20"></div>
-            <div class="field"><label>高さ</label><input id="propH" type="number" min="20"></div>
+            <div class="field"><label>Width</label><input id="propW" type="number" min="20"></div>
+            <div class="field"><label>Height</label><input id="propH" type="number" min="20"></div>
           </div>
 
-          <div id="bubbleTailFields" class="field-grid" style="margin-top:8px;">
+          <div id="bubbleTailFields" class="field-grid" style="margin-top: 8px;">
             <div class="field"><label>Tail X</label><input id="propTailX" type="number"></div>
             <div class="field"><label>Tail Y</label><input id="propTailY" type="number"></div>
             <div class="field"><label>Tail Size</label><input id="propTailSize" type="number" min="4"></div>
             <div class="field">
               <label>Tail Nudge</label>
               <div class="row tight">
-                <button type="button" id="tailLeftBtn">←</button>
-                <button type="button" id="tailUpBtn">↑</button>
-                <button type="button" id="tailDownBtn">↓</button>
-                <button type="button" id="tailRightBtn">→</button>
+                <button type="button" id="tailLeftBtn">Left</button>
+                <button type="button" id="tailUpBtn">Up</button>
+                <button type="button" id="tailDownBtn">Down</button>
+                <button type="button" id="tailRightBtn">Right</button>
               </div>
             </div>
           </div>
 
-          <div class="field-grid" style="margin-top:8px;">
-            <div class="field"><label>フォントサイズ</label><input id="propFontSize" type="number" min="8"></div>
-            <div class="field"><label>余白</label><input id="propPadding" type="number" min="0"></div>
-            <div class="field"><label>線の太さ</label><input id="propStrokeWidth" type="number" min="0"></div>
+          <div class="field-grid" style="margin-top: 8px;">
+            <div class="field"><label>Font Size</label><input id="propFontSize" type="number" min="8"></div>
+            <div class="field"><label>Padding</label><input id="propPadding" type="number" min="0"></div>
+            <div class="field"><label>Stroke Width</label><input id="propStrokeWidth" type="number" min="0"></div>
             <div class="field">
-              <label>文字揃え</label>
+              <label>Align</label>
               <select id="propAlign">
                 <option value="center">center</option>
                 <option value="left">left</option>
               </select>
             </div>
             <div class="field">
-              <label>文字方向</label>
+              <label>Text Direction</label>
               <select id="propDirection">
                 <option value="horizontal">horizontal</option>
                 <option value="vertical">vertical</option>
               </select>
             </div>
             <div class="field">
-              <label>透明度</label>
+              <label>Opacity</label>
               <div class="opacity-row">
                 <input id="propOpacity" type="range" min="5" max="100" value="100">
                 <strong id="propOpacityLabel">100%</strong>
@@ -397,22 +573,23 @@
             </div>
           </div>
 
-          <div class="field-grid" style="margin-top:8px;">
-            <div class="field"><label>塗り</label><input id="propFill" type="color"></div>
-            <div class="field"><label>線色</label><input id="propStroke" type="color"></div>
-            <div class="field"><label>文字色</label><input id="propTextColor" type="color"></div>
+          <div class="field-grid" style="margin-top: 8px;">
+            <div class="field"><label>Fill</label><input id="propFill" type="color"></div>
+            <div class="field"><label>Stroke</label><input id="propStroke" type="color"></div>
+            <div class="field"><label>Text Color</label><input id="propTextColor" type="color"></div>
             <div class="field hidden" id="propTextBoxField">
-              <label>テキスト背景</label>
-              <div class="row">
+              <label>Text Box Frame</label>
+              <div class="row" style="margin-top: 2px;">
                 <input id="propUseTextBox" type="checkbox">
-                <span>有効</span>
+                <span>Enable</span>
               </div>
             </div>
           </div>
         </div>
 
         <hr class="split">
-        <h2>レイヤー</h2>
+
+        <h2>Layers</h2>
         <ul id="layerList" class="layer-list"></ul>
       </aside>
     </section>
@@ -421,6 +598,8 @@
   <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden">
   <input id="projectInput" type="file" accept=".json,application/json" class="hidden">
 
-  <script src="/assets/manual_editor.js"></script>
+  <script>window.__APP_VERSION__ = "3.0.0";</script>
+  <script src="/assets/vendor/rough.min.js?v=3.0.0"></script>
+  <script src="/assets/manual_editor.js?v=3.0.0"></script>
 </body>
 </html>

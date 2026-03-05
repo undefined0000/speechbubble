@@ -1,5 +1,7 @@
 "use strict";
 
+const APP_VERSION = String(window.__APP_VERSION__ || "3.0.0");
+
 const els = {
   canvas: document.getElementById("editorCanvas"),
   viewport: document.getElementById("canvasViewport"),
@@ -20,10 +22,18 @@ const els = {
   saveProjectBtn: document.getElementById("saveProjectBtn"),
   loadProjectBtn: document.getElementById("loadProjectBtn"),
   exportPngBtn: document.getElementById("exportPngBtn"),
+  templateSearchInput: document.getElementById("templateSearchInput"),
+  templateCategorySelect: document.getElementById("templateCategorySelect"),
+  variantRegenerateBtn: document.getElementById("variantRegenerateBtn"),
+  applyTemplateBtn: document.getElementById("applyTemplateBtn"),
+  templateGrid: document.getElementById("templateGrid"),
   layerList: document.getElementById("layerList"),
   noSelectionText: document.getElementById("noSelectionText"),
   propPanel: document.getElementById("propPanel"),
   propKind: document.getElementById("propKind"),
+  propRenderMode: document.getElementById("propRenderMode"),
+  propTemplateId: document.getElementById("propTemplateId"),
+  propTailSnap: document.getElementById("propTailSnap"),
   propShapeWrap: document.getElementById("propShapeWrap"),
   propShape: document.getElementById("propShape"),
   propText: document.getElementById("propText"),
@@ -71,11 +81,30 @@ const state = {
   history: [],
   historyIndex: -1,
   syncingProps: false,
+  templateManifest: null,
+  templateBases: [],
+  templateById: new Map(),
+  templateCatalog: [],
+  selectedTemplateCatalogId: null,
+  templateRotationCursor: {},
+  recentTemplateIds: [],
+  autoTemplateCategoryIndex: 0,
+  templateLoadFailed: false,
 };
 
 const MAX_HISTORY = 80;
 const SHAPE_SET = new Set(["ellipse", "rounded", "cloud", "shout", "thought", "whisper"]);
 const TEXT_DIRECTION_SET = new Set(["horizontal", "vertical"]);
+const RENDER_MODE_SET = new Set(["procedural", "template"]);
+const TEMPLATE_CATEGORIES = ["normal", "shout", "thought", "whisper", "narration"];
+const AUTO_CATEGORY_SEQUENCE = ["normal", "normal", "thought", "whisper", "normal", "shout", "narration"];
+const LINE_WIDTH_LEVELS = [3, 4, 5];
+const ROUGHNESS_LEVELS = [0.72, 1.2];
+const WOBBLE_LEVELS = [0.85, 1.35];
+const RECENT_TEMPLATE_LIMIT = 5;
+
+const templatePathCache = new Map();
+const roughCanvasCache = new WeakMap();
 
 function deepCopy(value) {
   return JSON.parse(JSON.stringify(value));
@@ -98,6 +127,35 @@ function normalizeTextDirection(value) {
   return TEXT_DIRECTION_SET.has(value) ? value : "horizontal";
 }
 
+function normalizeRenderMode(value) {
+  return RENDER_MODE_SET.has(value) ? value : "procedural";
+}
+
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function hashString(value) {
+  let h = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    h ^= value.charCodeAt(i);
+    h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+  }
+  return Math.abs(h >>> 0);
+}
+
+function normalizeTemplateVariant(raw, templateId) {
+  const h = hashString(String(templateId || "template"));
+  const roughness = safeNumber(raw && raw.roughness, ROUGHNESS_LEVELS[h % ROUGHNESS_LEVELS.length]);
+  const wobble = safeNumber(raw && raw.wobble, WOBBLE_LEVELS[(h >> 1) % WOBBLE_LEVELS.length]);
+  const seed = Math.max(1, Math.round(safeNumber(raw && raw.seed, (h % 90000) + 1000)));
+  return {
+    roughness: clamp(roughness, 0.4, 2.2),
+    wobble: clamp(wobble, 0.4, 2.2),
+    seed,
+  };
+}
+
 function status(text, kind = "") {
   els.statusBar.textContent = text;
   els.statusBar.className = "status";
@@ -112,6 +170,309 @@ function byId(id) {
 
 function currentSelection() {
   return byId(state.selectedId);
+}
+
+function parseViewBox(viewBox) {
+  const parts = String(viewBox || "")
+    .trim()
+    .split(/\s+/)
+    .map((v) => Number(v));
+  if (parts.length !== 4 || parts.some((v) => !Number.isFinite(v))) {
+    return { x: 0, y: 0, w: 1000, h: 800 };
+  }
+  return { x: parts[0], y: parts[1], w: Math.max(1, parts[2]), h: Math.max(1, parts[3]) };
+}
+
+function validateTemplate(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  if (typeof raw.id !== "string" || typeof raw.bodyPath !== "string" || typeof raw.viewBox !== "string") {
+    return null;
+  }
+  if (!TEMPLATE_CATEGORIES.includes(raw.category)) {
+    return null;
+  }
+  const box = raw.textBox || {};
+  const tailAnchors = Array.isArray(raw.tailAnchors) ? raw.tailAnchors : [];
+  const style = raw.defaultStyle || {};
+  return {
+    id: raw.id,
+    category: raw.category,
+    source: raw.source || null,
+    viewBox: raw.viewBox,
+    bodyPath: raw.bodyPath,
+    textBox: {
+      x: safeNumber(box.x, 180),
+      y: safeNumber(box.y, 180),
+      w: Math.max(10, safeNumber(box.w, 640)),
+      h: Math.max(10, safeNumber(box.h, 400)),
+    },
+    tailAnchors: tailAnchors
+      .map((anchor, index) => ({
+        id: typeof anchor.id === "string" ? anchor.id : `anchor-${index + 1}`,
+        x: safeNumber(anchor.x, 500),
+        y: safeNumber(anchor.y, 400),
+        normal: {
+          x: clamp(safeNumber(anchor.normal && anchor.normal.x, 0), -1.2, 1.2),
+          y: clamp(safeNumber(anchor.normal && anchor.normal.y, 1), -1.2, 1.2),
+        },
+      }))
+      .slice(0, 20),
+    defaultStyle: {
+      lineWidth: Math.max(1, safeNumber(style.lineWidth, 4)),
+      fill: colorOrFallback(style.fill, "#ffffff"),
+      stroke: colorOrFallback(style.stroke, "#1b1e24"),
+    },
+    svgPath: typeof raw.svgPath === "string" ? raw.svgPath : "",
+  };
+}
+
+function makeVariantByIndex(templateId, variantIndex) {
+  const h = hashString(`${templateId}:${variantIndex}`);
+  return {
+    lineWidth: LINE_WIDTH_LEVELS[variantIndex % LINE_WIDTH_LEVELS.length],
+    roughness: ROUGHNESS_LEVELS[h % ROUGHNESS_LEVELS.length],
+    wobble: WOBBLE_LEVELS[(h >> 1) % WOBBLE_LEVELS.length],
+    seed: (h % 90000) + 1000,
+  };
+}
+
+function randomVariant(templateId) {
+  const variantIndex = randomInt(0, LINE_WIDTH_LEVELS.length - 1);
+  const v = makeVariantByIndex(templateId, variantIndex);
+  return {
+    lineWidth: v.lineWidth,
+    roughness: ROUGHNESS_LEVELS[randomInt(0, ROUGHNESS_LEVELS.length - 1)],
+    wobble: WOBBLE_LEVELS[randomInt(0, WOBBLE_LEVELS.length - 1)],
+    seed: randomInt(1000, 99999),
+  };
+}
+
+function buildTemplateCatalog(baseTemplates) {
+  const list = [];
+  for (const template of baseTemplates) {
+    for (let i = 0; i < LINE_WIDTH_LEVELS.length; i += 1) {
+      list.push({
+        catalogId: `${template.id}::${i + 1}`,
+        templateId: template.id,
+        category: template.category,
+        variant: makeVariantByIndex(template.id, i),
+      });
+    }
+  }
+  return list;
+}
+
+function templateById(id) {
+  return state.templateById.get(id) || null;
+}
+
+function selectedCatalogItem() {
+  return state.templateCatalog.find((item) => item.catalogId === state.selectedTemplateCatalogId) || null;
+}
+
+function rememberTemplateUsage(templateId) {
+  if (!templateId) {
+    return;
+  }
+  state.recentTemplateIds.push(templateId);
+  if (state.recentTemplateIds.length > RECENT_TEMPLATE_LIMIT) {
+    state.recentTemplateIds.shift();
+  }
+}
+
+function pickAutoTemplateCatalog() {
+  if (!state.templateBases.length || !state.templateCatalog.length) {
+    return null;
+  }
+  const category = AUTO_CATEGORY_SEQUENCE[state.autoTemplateCategoryIndex % AUTO_CATEGORY_SEQUENCE.length];
+  state.autoTemplateCategoryIndex += 1;
+  const categoryBases = state.templateBases.filter((tpl) => tpl.category === category);
+  if (!categoryBases.length) {
+    return state.templateCatalog[0] || null;
+  }
+  const cursor = Number(state.templateRotationCursor[category] || 0);
+  let base = categoryBases[cursor % categoryBases.length];
+  for (let i = 0; i < categoryBases.length; i += 1) {
+    const candidate = categoryBases[(cursor + i) % categoryBases.length];
+    if (!state.recentTemplateIds.includes(candidate.id)) {
+      base = candidate;
+      state.templateRotationCursor[category] = (cursor + i + 1) % categoryBases.length;
+      break;
+    }
+    if (i === categoryBases.length - 1) {
+      state.templateRotationCursor[category] = (cursor + 1) % categoryBases.length;
+    }
+  }
+  const variants = state.templateCatalog.filter((item) => item.templateId === base.id);
+  if (!variants.length) {
+    return null;
+  }
+  const chosen = variants[randomInt(0, variants.length - 1)];
+  return { ...chosen, variant: randomVariant(chosen.templateId) };
+}
+
+function updateSelectedTemplateCardFromSelection() {
+  const obj = currentSelection();
+  if (!obj || obj.kind !== "bubble" || obj.renderMode !== "template" || !obj.templateId) {
+    return;
+  }
+  const exact = state.templateCatalog.find(
+    (item) => item.templateId === obj.templateId && item.variant.lineWidth === Math.round(Number(obj.strokeWidth) || 0)
+  );
+  if (exact) {
+    state.selectedTemplateCatalogId = exact.catalogId;
+    return;
+  }
+  const match = state.templateCatalog.find((item) => item.templateId === obj.templateId);
+  if (match) {
+    state.selectedTemplateCatalogId = match.catalogId;
+  }
+}
+
+function syncTemplateSelectionUi() {
+  updateSelectedTemplateCardFromSelection();
+  renderTemplateGrid();
+}
+
+function pickTemplateCatalogForBubble(obj) {
+  if (!obj || obj.kind !== "bubble") {
+    return selectedCatalogItem();
+  }
+  if (obj.templateId) {
+    const existing = state.templateCatalog.find((item) => item.templateId === obj.templateId);
+    if (existing) {
+      return existing;
+    }
+  }
+  const selected = selectedCatalogItem();
+  if (selected) {
+    return selected;
+  }
+  return pickAutoTemplateCatalog();
+}
+
+function pickTemplateCatalogById(templateId) {
+  if (!templateId) {
+    return null;
+  }
+  return state.templateCatalog.find((item) => item.templateId === templateId) || null;
+}
+
+function templateAnchorExists(template, anchorId) {
+  if (!template || !anchorId) {
+    return false;
+  }
+  return template.tailAnchors.some((anchor) => anchor.id === anchorId);
+}
+
+function renderTemplateGrid() {
+  if (!els.templateGrid) {
+    return;
+  }
+  const hasCatalog = Array.isArray(state.templateCatalog) && state.templateCatalog.length > 0;
+  if (!hasCatalog) {
+    els.templateGrid.innerHTML = "";
+    const empty = document.createElement("div");
+    empty.className = "template-meta";
+    empty.textContent = state.templateLoadFailed
+      ? "Template catalog unavailable. Procedural mode only."
+      : "Loading template catalog...";
+    els.templateGrid.appendChild(empty);
+    return;
+  }
+  const query = String(els.templateSearchInput.value || "").trim().toLowerCase();
+  const category = String(els.templateCategorySelect.value || "all");
+  const filtered = state.templateCatalog.filter((item) => {
+    if (category !== "all" && item.category !== category) {
+      return false;
+    }
+    if (!query) {
+      return true;
+    }
+    return item.templateId.toLowerCase().includes(query) || item.catalogId.toLowerCase().includes(query);
+  });
+
+  els.templateGrid.innerHTML = "";
+  if (!filtered.length) {
+    const empty = document.createElement("div");
+    empty.className = "template-meta";
+    empty.textContent = "No template matches current filter.";
+    els.templateGrid.appendChild(empty);
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  filtered.forEach((item) => {
+    const tpl = templateById(item.templateId);
+    if (!tpl) {
+      return;
+    }
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "template-card" + (item.catalogId === state.selectedTemplateCatalogId ? " active" : "");
+    card.dataset.catalogId = item.catalogId;
+    card.innerHTML = `
+      <svg viewBox="${tpl.viewBox}" aria-hidden="true">
+        <path d="${tpl.bodyPath}" fill="#fff" stroke="#1b1e24" stroke-width="${item.variant.lineWidth}" stroke-linejoin="round" stroke-linecap="round"></path>
+      </svg>
+      <strong>${tpl.id}</strong>
+      <span class="template-meta">${tpl.category} / lw ${item.variant.lineWidth}</span>
+    `;
+    card.addEventListener("click", () => {
+      state.selectedTemplateCatalogId = item.catalogId;
+      renderTemplateGrid();
+    });
+    frag.appendChild(card);
+  });
+  els.templateGrid.appendChild(frag);
+}
+
+async function loadTemplateManifest() {
+  const url = `/assets/bubbles/manifest.json?v=${encodeURIComponent(APP_VERSION)}`;
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`manifest fetch failed (${response.status})`);
+    }
+    const payload = await response.json();
+    const templates = Array.isArray(payload.templates) ? payload.templates : [];
+    const normalized = templates.map(validateTemplate).filter(Boolean);
+    if (!normalized.length) {
+      throw new Error("manifest is empty");
+    }
+    state.templateManifest = payload;
+    state.templateBases = normalized;
+    state.templateById = new Map(normalized.map((tpl) => [tpl.id, tpl]));
+    state.templateCatalog = buildTemplateCatalog(normalized);
+    state.templateLoadFailed = false;
+    if (!state.selectedTemplateCatalogId && state.templateCatalog.length) {
+      state.selectedTemplateCatalogId = state.templateCatalog[0].catalogId;
+    }
+    state.objects.forEach((obj) => {
+      maybeRecoverTemplateBubble(obj);
+      clampObjectBounds(obj);
+    });
+    syncTemplateSelectionUi();
+    syncPropertyPanel();
+    draw();
+    status(`Template catalog loaded: ${state.templateCatalog.length} variants.`, "ok");
+  } catch (error) {
+    state.templateManifest = null;
+    state.templateBases = [];
+    state.templateById = new Map();
+    state.templateCatalog = [];
+    state.templateLoadFailed = true;
+    state.objects.forEach((obj) => {
+      maybeRecoverTemplateBubble(obj);
+      clampObjectBounds(obj);
+    });
+    syncPropertyPanel();
+    draw();
+    renderTemplateGrid();
+    status(`Template catalog unavailable. Procedural mode only. ${String(error.message || error)}`, "warn");
+  }
 }
 
 function normalizeObject(raw) {
@@ -136,6 +497,13 @@ function normalizeObject(raw) {
 
   if (base.kind === "bubble") {
     base.shape = normalizeShape(raw.shape);
+    base.renderMode = normalizeRenderMode(raw.renderMode);
+    base.templateId = typeof raw.templateId === "string" ? raw.templateId : null;
+    base.templateVariant = base.templateId
+      ? normalizeTemplateVariant(raw.templateVariant, base.templateId)
+      : null;
+    base.tailAnchorId = typeof raw.tailAnchorId === "string" ? raw.tailAnchorId : null;
+    base.tailSnap = base.renderMode === "template" ? raw.tailSnap !== false : false;
     base.tailX = safeNumber(raw.tailX, base.x + base.w / 2);
     base.tailY = safeNumber(raw.tailY, base.y + base.h + 40);
     base.tailSize = Math.max(4, safeNumber(raw.tailSize, 16));
@@ -184,6 +552,7 @@ function restoreHistory(index) {
   syncUndoRedoButtons();
   syncPropertyPanel();
   renderLayerList();
+  syncTemplateSelectionUi();
   draw();
 }
 
@@ -253,16 +622,172 @@ function colorOrFallback(value, fallback) {
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
 }
 
+function hexToRgba(hex, alpha) {
+  const normalized = colorOrFallback(hex, "#1b1e24").replace("#", "");
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${clamp(safeNumber(alpha, 1), 0, 1)})`;
+}
+
+function mapTemplateCategoryToShape(category) {
+  if (category === "narration") {
+    return "rounded";
+  }
+  if (category === "shout") {
+    return "shout";
+  }
+  if (category === "thought") {
+    return "thought";
+  }
+  if (category === "whisper") {
+    return "whisper";
+  }
+  return "ellipse";
+}
+
+function hasTemplateCatalog() {
+  return Array.isArray(state.templateCatalog) && state.templateCatalog.length > 0;
+}
+
+function maybeRecoverTemplateBubble(obj) {
+  if (!obj || obj.kind !== "bubble" || obj.renderMode !== "template") {
+    return;
+  }
+  if (state.templateLoadFailed) {
+    obj.renderMode = "procedural";
+    obj.tailSnap = false;
+    obj.tailAnchorId = null;
+    return;
+  }
+  if (!state.templateBases.length) {
+    return;
+  }
+  if (obj.templateId && templateById(obj.templateId)) {
+    return;
+  }
+  const choice = pickTemplateCatalogForBubble(obj);
+  if (choice && applyCatalogItemToBubble(obj, choice)) {
+    state.selectedTemplateCatalogId = choice.catalogId;
+    return;
+  }
+  obj.renderMode = "procedural";
+  obj.tailSnap = false;
+  obj.tailAnchorId = null;
+}
+
+function setBubbleRenderMode(obj, mode) {
+  const nextMode = normalizeRenderMode(mode);
+  if (nextMode === "template") {
+    if (state.templateLoadFailed || !hasTemplateCatalog()) {
+      obj.renderMode = "procedural";
+      status("Template catalog unavailable. Using procedural mode.", "warn");
+      return;
+    }
+    const chosen = pickTemplateCatalogForBubble(obj);
+    if (!chosen || !applyCatalogItemToBubble(obj, chosen)) {
+      obj.renderMode = "procedural";
+      status("No template available. Using procedural mode.", "warn");
+      return;
+    }
+    state.selectedTemplateCatalogId = chosen.catalogId;
+    obj.renderMode = "template";
+    obj.tailSnap = true;
+    obj.tailAnchorId = null;
+    return;
+  }
+  obj.renderMode = "procedural";
+  obj.tailSnap = false;
+  obj.tailAnchorId = null;
+}
+
+function markTailManualControl(obj) {
+  if (!obj || obj.kind !== "bubble") {
+    return;
+  }
+  if (obj.renderMode === "template") {
+    obj.tailSnap = false;
+    obj.tailAnchorId = null;
+  }
+}
+
+function formatTemplateIdForPanel(obj) {
+  if (!obj || obj.kind !== "bubble") {
+    return "-";
+  }
+  if (obj.renderMode !== "template") {
+    return "-";
+  }
+  return obj.templateId || "(select from panel)";
+}
+
+function shouldShowShapeSelector(obj) {
+  return obj && obj.kind === "bubble" && obj.renderMode !== "template";
+}
+
+function pointInTemplateBubble(point, obj) {
+  const template = obj && obj.templateId ? templateById(obj.templateId) : null;
+  if (!template) {
+    return (
+      point.x >= obj.x &&
+      point.x <= obj.x + obj.w &&
+      point.y >= obj.y &&
+      point.y <= obj.y + obj.h
+    );
+  }
+  const vb = parseViewBox(template.viewBox);
+  const localX = ((point.x - obj.x) / Math.max(1, obj.w)) * vb.w + vb.x;
+  const localY = ((point.y - obj.y) / Math.max(1, obj.h)) * vb.h + vb.y;
+  const path = getTemplatePath2D(template);
+  if (!path) {
+    return (
+      point.x >= obj.x &&
+      point.x <= obj.x + obj.w &&
+      point.y >= obj.y &&
+      point.y <= obj.y + obj.h
+    );
+  }
+  const offscreen = document.createElement("canvas");
+  offscreen.width = 1;
+  offscreen.height = 1;
+  const testCtx = offscreen.getContext("2d");
+  if (!testCtx) {
+    return (
+      point.x >= obj.x &&
+      point.x <= obj.x + obj.w &&
+      point.y >= obj.y &&
+      point.y <= obj.y + obj.h
+    );
+  }
+  return testCtx.isPointInPath(path, localX, localY);
+}
+
 function makeBubble() {
   const w = Math.max(180, state.imageWidth * 0.28);
   const h = Math.max(110, state.imageHeight * 0.16);
   const x = clamp(state.imageWidth * 0.3, 0, state.imageWidth - w);
   const y = clamp(state.imageHeight * 0.2, 0, state.imageHeight - h);
+  const autoTemplate = pickAutoTemplateCatalog();
+  const template = autoTemplate ? templateById(autoTemplate.templateId) : null;
+  if (template) {
+    rememberTemplateUsage(template.id);
+  }
   return {
     id: state.nextId++,
     kind: "bubble",
-    shape: "ellipse",
-    text: "セリフ",
+    renderMode: template ? "template" : "procedural",
+    templateId: template ? template.id : null,
+    templateVariant: template
+      ? {
+          roughness: autoTemplate.variant.roughness,
+          wobble: autoTemplate.variant.wobble,
+          seed: autoTemplate.variant.seed,
+        }
+      : null,
+    tailAnchorId: null,
+    tailSnap: Boolean(template),
+    shape: template ? mapTemplateCategoryToShape(template.category) : "ellipse",
+    text: "dialogue",
     x,
     y,
     w,
@@ -270,9 +795,9 @@ function makeBubble() {
     tailX: x + w * 0.5,
     tailY: y + h + Math.min(110, state.imageHeight * 0.12),
     tailSize: Math.max(10, Math.round(Math.min(w, h) * 0.12)),
-    fill: "#ffffff",
-    stroke: "#1b1e24",
-    strokeWidth: 4,
+    fill: template ? template.defaultStyle.fill : "#ffffff",
+    stroke: template ? template.defaultStyle.stroke : "#1b1e24",
+    strokeWidth: template ? autoTemplate.variant.lineWidth : 4,
     textColor: "#111111",
     fontSize: Math.max(24, Math.round(Math.min(w, h) * 0.24)),
     padding: 22,
@@ -290,7 +815,7 @@ function makeText() {
   return {
     id: state.nextId++,
     kind: "text",
-    text: "テキスト",
+    text: "text",
     x,
     y,
     w,
@@ -307,19 +832,98 @@ function makeText() {
     textDirection: "horizontal",
   };
 }
+
+function applyCatalogItemToBubble(obj, item) {
+  const template = templateById(item.templateId);
+  if (!template) {
+    return false;
+  }
+  obj.renderMode = "template";
+  obj.templateId = template.id;
+  obj.templateVariant = {
+    roughness: item.variant.roughness,
+    wobble: item.variant.wobble,
+    seed: item.variant.seed,
+  };
+  obj.tailAnchorId = null;
+  obj.tailSnap = true;
+  obj.strokeWidth = item.variant.lineWidth;
+  obj.fill = colorOrFallback(template.defaultStyle.fill, obj.fill);
+  obj.stroke = colorOrFallback(template.defaultStyle.stroke, obj.stroke);
+  obj.shape = mapTemplateCategoryToShape(template.category);
+  rememberTemplateUsage(template.id);
+  return true;
+}
+
+function applySelectedTemplateToCurrentBubble() {
+  const item = selectedCatalogItem();
+  if (!item) {
+    status("Select a template card first.", "err");
+    return;
+  }
+  let obj = currentSelection();
+  if (!obj) {
+    addObject("bubble");
+    obj = currentSelection();
+  }
+  if (!obj || obj.kind !== "bubble") {
+    status("Select a bubble object first.", "err");
+    return;
+  }
+  if (applyCatalogItemToBubble(obj, item)) {
+    state.selectedTemplateCatalogId = item.catalogId;
+    clampObjectBounds(obj);
+    syncPropertyPanel();
+    syncTemplateSelectionUi();
+    draw();
+    pushHistory();
+    status(`Template applied: ${item.templateId}`, "ok");
+  } else {
+    status("Template not found in manifest.", "err");
+  }
+}
+
+function regenerateVariant() {
+  const obj = currentSelection();
+  const item = selectedCatalogItem();
+  if (obj && obj.kind === "bubble" && obj.renderMode === "template" && obj.templateId) {
+    const next = randomVariant(obj.templateId);
+    obj.templateVariant = {
+      roughness: next.roughness,
+      wobble: next.wobble,
+      seed: next.seed,
+    };
+    obj.strokeWidth = next.lineWidth;
+    draw();
+    syncPropertyPanel();
+    syncTemplateSelectionUi();
+    pushHistory();
+    status("Variant regenerated for selected bubble.", "ok");
+    return;
+  }
+  if (item) {
+    item.variant = randomVariant(item.templateId);
+    renderTemplateGrid();
+    status("Variant regenerated for selected template card.", "ok");
+    return;
+  }
+  status("Select a template card or template bubble.", "err");
+}
+
 function addObject(kind) {
   if (!state.image) {
-    status("先に画像を読み込んでください。", "err");
+    status("Load an image first.", "err");
     return;
   }
   const obj = kind === "bubble" ? makeBubble() : makeText();
   state.objects.push(obj);
   state.selectedId = obj.id;
+  syncTemplateSelectionUi();
   pushHistory();
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status(kind === "bubble" ? "吹き出しを追加しました。" : "テキストを追加しました。", "ok");
+  status(kind === "bubble" ? "Bubble added." : "Text object added.", "ok");
 }
 
 function deleteSelected() {
@@ -331,8 +935,9 @@ function deleteSelected() {
   pushHistory();
   syncPropertyPanel();
   renderLayerList();
+  renderTemplateGrid();
   draw();
-  status("選択中のオブジェクトを削除しました。", "ok");
+  status("Selection deleted.", "ok");
 }
 
 function duplicateSelected() {
@@ -350,13 +955,13 @@ function duplicateSelected() {
   }
   state.objects.push(copy);
   state.selectedId = copy.id;
+  syncTemplateSelectionUi();
   pushHistory();
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status("複製しました。", "ok");
+  status("Duplicated.", "ok");
 }
-
 function moveLayer(id, direction) {
   const idx = state.objects.findIndex((obj) => obj.id === id);
   if (idx < 0) {
@@ -389,11 +994,12 @@ function downloadBlob(blob, filename) {
 
 function saveProject() {
   if (!state.image || !state.imageDataUrl) {
-    status("保存前に画像を読み込んでください。", "err");
+    status("Load an image before saving.", "err");
     return;
   }
   const payload = {
-    version: 2,
+    version: 3,
+    appVersion: APP_VERSION,
     imageDataUrl: state.imageDataUrl,
     imageWidth: state.imageWidth,
     imageHeight: state.imageHeight,
@@ -402,17 +1008,17 @@ function saveProject() {
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   downloadBlob(blob, "speechbubble-project.json");
-  status("プロジェクトJSONを保存しました。", "ok");
+  status("Project saved.", "ok");
 }
 
 async function loadProjectFile(file) {
   const text = await file.text();
   const payload = JSON.parse(text);
   if (!payload || typeof payload !== "object") {
-    throw new Error("不正なJSONです。");
+    throw new Error("Invalid project json.");
   }
   if (!payload.imageDataUrl || !Array.isArray(payload.objects)) {
-    throw new Error("imageDataUrl / objects が不足しています。");
+    throw new Error("Missing fields: imageDataUrl / objects");
   }
   await setBackgroundFromDataUrl(payload.imageDataUrl);
   state.objects = payload.objects.map((obj) => normalizeObject(obj));
@@ -422,16 +1028,17 @@ async function loadProjectFile(file) {
   state.history = [];
   state.historyIndex = -1;
   normalizeAndClampAllObjects();
+  syncTemplateSelectionUi();
   pushHistory();
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status("プロジェクトを読み込みました。", "ok");
+  status(`Project loaded (v${payload.version || 1}).`, "ok");
 }
 
 function exportPng() {
   if (!state.image) {
-    status("先に画像を読み込んでください。", "err");
+    status("Load an image first.", "err");
     return;
   }
   const off = document.createElement("canvas");
@@ -439,17 +1046,17 @@ function exportPng() {
   off.height = state.imageHeight;
   const ctx = off.getContext("2d");
   if (!ctx) {
-    status("キャンバスの初期化に失敗しました。", "err");
+    status("Cannot initialize canvas context.", "err");
     return;
   }
   renderScene(ctx, 1, false);
   off.toBlob((blob) => {
     if (!blob) {
-      status("PNG書き出しに失敗しました。", "err");
+      status("PNG export failed.", "err");
       return;
     }
     downloadBlob(blob, "speechbubble-export.png");
-    status("PNGを書き出しました。", "ok");
+    status("PNG exported.", "ok");
   }, "image/png");
 }
 
@@ -644,6 +1251,159 @@ function drawBubbleBodyPath(ctx, obj) {
   }
 }
 
+function getTemplatePath2D(template) {
+  const key = template.id;
+  let path = templatePathCache.get(key);
+  if (!path) {
+    try {
+      path = new Path2D(template.bodyPath);
+      templatePathCache.set(key, path);
+    } catch (_) {
+      return null;
+    }
+  }
+  return path;
+}
+
+function getTemplateAnchorPoints(obj, template) {
+  const vb = parseViewBox(template.viewBox);
+  const sx = obj.w / vb.w;
+  const sy = obj.h / vb.h;
+  return template.tailAnchors.map((anchor) => ({
+    id: anchor.id,
+    x: obj.x + (anchor.x - vb.x) * sx,
+    y: obj.y + (anchor.y - vb.y) * sy,
+    normal: {
+      x: safeNumber(anchor.normal && anchor.normal.x, 0),
+      y: safeNumber(anchor.normal && anchor.normal.y, 1),
+    },
+  }));
+}
+
+function chooseTemplateAnchor(obj, template) {
+  const anchors = getTemplateAnchorPoints(obj, template);
+  if (!anchors.length) {
+    return null;
+  }
+  if (obj.tailSnap && obj.tailAnchorId) {
+    const exact = anchors.find((a) => a.id === obj.tailAnchorId);
+    if (exact) {
+      return exact;
+    }
+  }
+  let best = anchors[0];
+  let bestDist = Infinity;
+  for (const anchor of anchors) {
+    const dx = obj.tailX - anchor.x;
+    const dy = obj.tailY - anchor.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      best = anchor;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function getRoughCanvas(canvas) {
+  if (!window.rough || typeof window.rough.canvas !== "function" || !canvas) {
+    return null;
+  }
+  let rc = roughCanvasCache.get(canvas);
+  if (!rc) {
+    rc = window.rough.canvas(canvas);
+    roughCanvasCache.set(canvas, rc);
+  }
+  return rc;
+}
+
+function drawTemplateRoughOverlay(ctx, obj, template) {
+  const rc = getRoughCanvas(ctx.canvas);
+  if (!rc) {
+    return;
+  }
+  const variant = normalizeTemplateVariant(obj.templateVariant, obj.templateId || template.id);
+  const alpha = clamp(safeNumber(obj.opacity, 100), 5, 100) / 100;
+  const options = {
+    stroke: hexToRgba(colorOrFallback(obj.stroke, "#1b1e24"), alpha),
+    strokeWidth: Math.max(1, Number(obj.strokeWidth) || 3),
+    roughness: variant.roughness,
+    bowing: variant.wobble,
+    seed: variant.seed,
+    fill: "transparent",
+  };
+  const x = obj.x;
+  const y = obj.y;
+  const w = obj.w;
+  const h = obj.h;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.setLineDash([]);
+  if (template.category === "narration") {
+    rc.rectangle(x, y, w, h, options);
+  } else if (template.category === "shout") {
+    rc.ellipse(x + w / 2, y + h / 2, w * 1.03, h * 1.03, options);
+  } else {
+    rc.ellipse(x + w / 2, y + h / 2, w, h, options);
+  }
+  ctx.restore();
+}
+
+function drawTemplateBubble(ctx, obj, template) {
+  const fill = colorOrFallback(obj.fill, template.defaultStyle.fill);
+  const stroke = colorOrFallback(obj.stroke, template.defaultStyle.stroke);
+  const strokeWidth = Math.max(0, Number(obj.strokeWidth) || template.defaultStyle.lineWidth);
+  const path = getTemplatePath2D(template);
+  const vb = parseViewBox(template.viewBox);
+  const sx = obj.w / vb.w;
+  const sy = obj.h / vb.h;
+  const tx = obj.x - vb.x * sx;
+  const ty = obj.y - vb.y * sy;
+  const anchor = obj.tailSnap ? chooseTemplateAnchor(obj, template) : null;
+  const base = anchor || bubbleTailBase(obj);
+  if (anchor) {
+    obj.tailAnchorId = anchor.id;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = clamp(safeNumber(obj.opacity, 100), 5, 100) / 100;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = strokeWidth;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.setLineDash(template.category === "whisper" ? [12, 10] : []);
+
+  if (template.category === "thought") {
+    drawThoughtTail(ctx, obj, base);
+  } else if (template.category === "whisper") {
+    drawTailTriangle(ctx, obj, base, 0.62);
+  } else if (template.category === "shout") {
+    drawTailTriangle(ctx, obj, base, 1.12);
+  } else {
+    drawTailTriangle(ctx, obj, base, 1);
+  }
+
+  if (path) {
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.scale(sx, sy);
+    ctx.fill(path);
+    if (strokeWidth > 0) {
+      ctx.stroke(path);
+    }
+    ctx.restore();
+  } else {
+    roundedRectPath(ctx, obj.x, obj.y, obj.w, obj.h, Math.min(22, Math.min(obj.w, obj.h) * 0.2));
+    ctx.fill();
+    if (strokeWidth > 0) {
+      ctx.stroke();
+    }
+  }
+  drawTemplateRoughOverlay(ctx, obj, template);
+  ctx.restore();
+}
+
 function wrapText(ctx, text, maxWidth) {
   const result = [];
   const paragraphs = String(text || "").replace(/\r/g, "").split("\n");
@@ -771,17 +1531,32 @@ function drawVerticalText(ctx, obj, centered) {
 }
 
 function drawTextInObject(ctx, obj, centered) {
+  let drawTarget = obj;
+  if (obj.kind === "bubble" && obj.renderMode === "template" && obj.templateId) {
+    const template = templateById(obj.templateId);
+    if (template) {
+      const vb = parseViewBox(template.viewBox);
+      const box = template.textBox;
+      drawTarget = {
+        ...obj,
+        x: obj.x + ((box.x - vb.x) / vb.w) * obj.w,
+        y: obj.y + ((box.y - vb.y) / vb.h) * obj.h,
+        w: (box.w / vb.w) * obj.w,
+        h: (box.h / vb.h) * obj.h,
+      };
+    }
+  }
   ctx.save();
-  ctx.globalAlpha = clamp(safeNumber(obj.opacity, 100), 5, 100) / 100;
-  if (obj.textDirection === "vertical") {
-    drawVerticalText(ctx, obj, centered);
+  ctx.globalAlpha = clamp(safeNumber(drawTarget.opacity, 100), 5, 100) / 100;
+  if (drawTarget.textDirection === "vertical") {
+    drawVerticalText(ctx, drawTarget, centered);
   } else {
-    drawHorizontalText(ctx, obj, centered);
+    drawHorizontalText(ctx, drawTarget, centered);
   }
   ctx.restore();
 }
 
-function drawBubble(ctx, obj) {
+function drawProceduralBubble(ctx, obj) {
   const fill = colorOrFallback(obj.fill, "#ffffff");
   const stroke = colorOrFallback(obj.stroke, "#1b1e24");
   const strokeWidth = Math.max(0, Number(obj.strokeWidth) || 0);
@@ -812,6 +1587,18 @@ function drawBubble(ctx, obj) {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function drawBubble(ctx, obj) {
+  if (obj.renderMode === "template" && obj.templateId) {
+    const template = templateById(obj.templateId);
+    if (template) {
+      drawTemplateBubble(ctx, obj, template);
+      drawTextInObject(ctx, obj, true);
+      return;
+    }
+  }
+  drawProceduralBubble(ctx, obj);
   drawTextInObject(ctx, obj, true);
 }
 
@@ -906,6 +1693,9 @@ function draw() {
 
 function pointInObject(point, obj) {
   if (obj.kind === "bubble") {
+    if (obj.renderMode === "template") {
+      return pointInTemplateBubble(point, obj);
+    }
     if (obj.shape === "ellipse") {
       const cx = obj.x + obj.w / 2;
       const cy = obj.y + obj.h / 2;
@@ -966,6 +1756,26 @@ function clampObjectBounds(obj) {
   obj.textDirection = normalizeTextDirection(obj.textDirection);
   if (obj.kind === "bubble") {
     obj.shape = normalizeShape(obj.shape);
+    obj.renderMode = normalizeRenderMode(obj.renderMode);
+    obj.templateId = typeof obj.templateId === "string" ? obj.templateId : null;
+    obj.tailSnap = obj.tailSnap === true;
+    obj.tailAnchorId = typeof obj.tailAnchorId === "string" ? obj.tailAnchorId : null;
+    if (obj.templateId) {
+      obj.templateVariant = normalizeTemplateVariant(obj.templateVariant, obj.templateId);
+    } else {
+      obj.templateVariant = null;
+      obj.tailAnchorId = null;
+    }
+    maybeRecoverTemplateBubble(obj);
+    if (obj.renderMode === "template" && obj.templateId) {
+      const template = templateById(obj.templateId);
+      if (template && obj.tailAnchorId && !templateAnchorExists(template, obj.tailAnchorId)) {
+        obj.tailAnchorId = null;
+      }
+    } else {
+      obj.tailSnap = false;
+      obj.tailAnchorId = null;
+    }
     obj.tailX = clamp(obj.tailX, 0, state.imageWidth);
     obj.tailY = clamp(obj.tailY, 0, state.imageHeight);
     obj.tailSize = Math.max(4, safeNumber(obj.tailSize, 16));
@@ -989,7 +1799,12 @@ function syncPropertyPanel() {
   els.noSelectionText.classList.add("hidden");
   els.propPanel.classList.remove("hidden");
 
+  const isBubble = obj.kind === "bubble";
+  const isTemplateBubble = isBubble && obj.renderMode === "template";
+
   els.propKind.value = obj.kind;
+  els.propRenderMode.value = isBubble ? normalizeRenderMode(obj.renderMode) : "procedural";
+  els.propTemplateId.value = formatTemplateIdForPanel(obj);
   els.propShape.value = normalizeShape(obj.shape || "ellipse");
   els.propText.value = obj.text || "";
   els.propX.value = Math.round(obj.x);
@@ -1010,9 +1825,11 @@ function syncPropertyPanel() {
   els.propStroke.value = colorOrFallback(obj.stroke, "#1b1e24");
   els.propTextColor.value = colorOrFallback(obj.textColor, "#111111");
   els.propUseTextBox.checked = Boolean(obj.useTextBox);
+  els.propTailSnap.checked = isTemplateBubble ? obj.tailSnap === true : false;
 
-  const isBubble = obj.kind === "bubble";
-  els.propShapeWrap.classList.toggle("hidden", !isBubble);
+  els.propRenderMode.disabled = !isBubble || state.templateLoadFailed;
+  els.propTailSnap.disabled = !isTemplateBubble;
+  els.propShapeWrap.classList.toggle("hidden", !shouldShowShapeSelector(obj));
   els.bubbleTailFields.classList.toggle("hidden", !isBubble);
   els.propTextBoxField.classList.toggle("hidden", isBubble);
   [
@@ -1029,7 +1846,7 @@ function syncPropertyPanel() {
   state.syncingProps = false;
 }
 
-function applyPropertyChanges() {
+function applyPropertyChanges(event) {
   if (state.syncingProps) {
     return;
   }
@@ -1037,6 +1854,7 @@ function applyPropertyChanges() {
   if (!obj) {
     return;
   }
+  const targetId = event && event.target ? event.target.id : "";
   obj.text = els.propText.value;
   obj.x = safeNumber(els.propX.value, 0);
   obj.y = safeNumber(els.propY.value, 0);
@@ -1054,20 +1872,63 @@ function applyPropertyChanges() {
   obj.textColor = colorOrFallback(els.propTextColor.value, "#111111");
 
   if (obj.kind === "bubble") {
-    obj.shape = normalizeShape(els.propShape.value);
+    if (targetId === "propRenderMode") {
+      setBubbleRenderMode(obj, els.propRenderMode.value);
+    }
+    obj.renderMode = normalizeRenderMode(obj.renderMode);
+    if (obj.renderMode !== "template") {
+      obj.shape = normalizeShape(els.propShape.value);
+      obj.tailSnap = false;
+      obj.tailAnchorId = null;
+    } else if (obj.templateId) {
+      obj.templateVariant = normalizeTemplateVariant(obj.templateVariant, obj.templateId);
+      obj.tailSnap = Boolean(els.propTailSnap.checked);
+      if (!obj.tailSnap) {
+        obj.tailAnchorId = null;
+      }
+      const matchedItem = pickTemplateCatalogById(obj.templateId);
+      if (matchedItem) {
+        state.selectedTemplateCatalogId = matchedItem.catalogId;
+      }
+      const template = templateById(obj.templateId);
+      if (template) {
+        obj.shape = mapTemplateCategoryToShape(template.category);
+      }
+    }
     obj.tailX = safeNumber(els.propTailX.value, obj.x + obj.w / 2);
     obj.tailY = safeNumber(els.propTailY.value, obj.y + obj.h + 50);
     obj.tailSize = Math.max(4, safeNumber(els.propTailSize.value, 16));
+    if (targetId === "propTailX" || targetId === "propTailY" || targetId === "propTailSize") {
+      markTailManualControl(obj);
+      els.propTailSnap.checked = false;
+    }
+    if (targetId === "propTailSnap") {
+      obj.tailSnap = Boolean(els.propTailSnap.checked) && obj.renderMode === "template";
+      if (!obj.tailSnap) {
+        obj.tailAnchorId = null;
+      }
+    }
   } else {
     obj.useTextBox = Boolean(els.propUseTextBox.checked);
   }
+
   clampObjectBounds(obj);
+  if (obj.kind === "bubble") {
+    els.propTemplateId.value = formatTemplateIdForPanel(obj);
+    els.propRenderMode.value = normalizeRenderMode(obj.renderMode);
+  }
+  if (targetId === "propRenderMode" || targetId === "propTailSnap") {
+    syncPropertyPanel();
+  }
+  if (obj.kind === "bubble") {
+    syncTemplateSelectionUi();
+  }
   draw();
   renderLayerList();
 }
 
-function commitPropertyChanges() {
-  applyPropertyChanges();
+function commitPropertyChanges(event) {
+  applyPropertyChanges(event);
   pushHistory();
 }
 
@@ -1089,6 +1950,7 @@ function renderLayerList() {
       state.selectedId = obj.id;
       syncPropertyPanel();
       renderLayerList();
+      syncTemplateSelectionUi();
       draw();
     });
     li.querySelectorAll("[data-dir]").forEach((btn) => {
@@ -1122,6 +1984,7 @@ function pointerDown(event) {
     state.selectedId = null;
     syncPropertyPanel();
     renderLayerList();
+    renderTemplateGrid();
     draw();
     return;
   }
@@ -1134,6 +1997,7 @@ function pointerDown(event) {
   els.canvas.setPointerCapture(event.pointerId);
   syncPropertyPanel();
   renderLayerList();
+  syncTemplateSelectionUi();
   draw();
 }
 
@@ -1156,10 +2020,14 @@ function pointerMove(event) {
   } else if (state.pointerMode === "tail" && obj.kind === "bubble") {
     obj.tailX = point.x;
     obj.tailY = point.y;
+    markTailManualControl(obj);
   }
   clampObjectBounds(obj);
   state.changedDuringPointer = true;
   syncPropertyPanel();
+  if (obj.kind === "bubble") {
+    renderTemplateGrid();
+  }
   draw();
 }
 
@@ -1179,6 +2047,7 @@ function pointerUp(event) {
   if (changed) {
     pushHistory();
     renderLayerList();
+    renderTemplateGrid();
   }
 }
 
@@ -1187,9 +2056,11 @@ function nudgeTail(dx, dy) {
   if (!obj || obj.kind !== "bubble") {
     return;
   }
+  markTailManualControl(obj);
   obj.tailX = clamp(obj.tailX + dx, 0, state.imageWidth);
   obj.tailY = clamp(obj.tailY + dy, 0, state.imageHeight);
   syncPropertyPanel();
+  renderTemplateGrid();
   draw();
   pushHistory();
 }
@@ -1198,7 +2069,7 @@ function dataUrlFromFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("画像ファイルを読み込めませんでした。"));
+    reader.onerror = () => reject(new Error("Failed to read image file."));
     reader.readAsDataURL(file);
   });
 }
@@ -1207,7 +2078,7 @@ function imageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("画像形式が不正です。PNG/JPEG/WEBPを使ってください。"));
+    img.onerror = () => reject(new Error("Invalid image format. Use PNG/JPEG/WEBP."));
     img.src = dataUrl;
   });
 }
@@ -1230,10 +2101,10 @@ async function loadImageFile(file) {
   const type = file.type || "";
   const name = file.name.toLowerCase();
   if (type === "image/heic" || type === "image/heif" || name.endsWith(".heic") || name.endsWith(".heif")) {
-    throw new Error("HEIC/HEIFは未対応です。JPEG/PNG/WEBPを使ってください。");
+    throw new Error("HEIC/HEIF is not supported. Use JPEG/PNG/WEBP.");
   }
   if (!type.startsWith("image/")) {
-    throw new Error("画像ファイルを選択してください。");
+    throw new Error("Please select an image file.");
   }
   const dataUrl = await dataUrlFromFile(file);
   await setBackgroundFromDataUrl(dataUrl);
@@ -1245,7 +2116,7 @@ async function loadImageFile(file) {
   pushHistory();
   syncPropertyPanel();
   renderLayerList();
-  status(`画像を読み込みました: ${state.imageWidth}x${state.imageHeight}`, "ok");
+  status(`Image loaded: ${state.imageWidth}x${state.imageHeight}`, "ok");
 }
 
 function bindEvents() {
@@ -1274,6 +2145,10 @@ function bindEvents() {
   els.saveProjectBtn.addEventListener("click", saveProject);
   els.loadProjectBtn.addEventListener("click", () => els.projectInput.click());
   els.exportPngBtn.addEventListener("click", exportPng);
+  els.templateSearchInput.addEventListener("input", renderTemplateGrid);
+  els.templateCategorySelect.addEventListener("change", renderTemplateGrid);
+  els.applyTemplateBtn.addEventListener("click", applySelectedTemplateToCurrentBubble);
+  els.variantRegenerateBtn.addEventListener("click", regenerateVariant);
 
   els.projectInput.addEventListener("change", async () => {
     const file = els.projectInput.files && els.projectInput.files[0];
@@ -1298,6 +2173,7 @@ function bindEvents() {
   });
 
   [
+    els.propRenderMode,
     els.propShape,
     els.propText,
     els.propX,
@@ -1316,6 +2192,7 @@ function bindEvents() {
     els.propFill,
     els.propStroke,
     els.propTextColor,
+    els.propTailSnap,
     els.propUseTextBox,
   ].forEach((element) => {
     element.addEventListener("input", applyPropertyChanges);
@@ -1349,8 +2226,10 @@ function boot() {
   bindEvents();
   syncUndoRedoButtons();
   renderLayerList();
+  renderTemplateGrid();
   syncPropertyPanel();
-  status("画像を読み込んで編集を開始してください。");
+  loadTemplateManifest();
+  status("Load an image to start editing.", "ok");
 }
 
 boot();

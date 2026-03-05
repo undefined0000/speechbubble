@@ -12,6 +12,10 @@ def test_root_returns_editor_html() -> None:
     assert "text/html" in response.headers.get("content-type", "")
     assert "Manual Speech Bubble Editor" in response.text
     assert "/assets/manual_editor.js" in response.text
+    assert "templateSearchInput" in response.text
+    assert "templateGrid" in response.text
+    assert "propRenderMode" in response.text
+    assert "propTemplateId" in response.text
     assert "propTailSize" in response.text
     assert "propDirection" in response.text
     assert "propOpacity" in response.text
@@ -26,6 +30,17 @@ def test_assets_js_is_served() -> None:
     assert "function boot()" in response.text
     assert "function drawVerticalText" in response.text
     assert "function nudgeTail" in response.text
+    assert "function loadTemplateManifest" in response.text
+
+
+def test_assets_manifest_is_served() -> None:
+    client = TestClient(app)
+    response = client.get("/assets/bubbles/manifest.json")
+    assert response.status_code == 200
+    assert "application/json" in response.headers.get("content-type", "")
+    payload = response.json()
+    assert isinstance(payload.get("templates"), list)
+    assert len(payload["templates"]) >= 20
 
 
 def test_health_and_deprecated_endpoint() -> None:
