@@ -33,6 +33,7 @@ const els = {
   propKind: document.getElementById("propKind"),
   propRenderMode: document.getElementById("propRenderMode"),
   propTemplateId: document.getElementById("propTemplateId"),
+  propTailVisible: document.getElementById("propTailVisible"),
   propTailSnap: document.getElementById("propTailSnap"),
   propShapeWrap: document.getElementById("propShapeWrap"),
   propShape: document.getElementById("propShape"),
@@ -48,6 +49,8 @@ const els = {
   tailUpBtn: document.getElementById("tailUpBtn"),
   tailDownBtn: document.getElementById("tailDownBtn"),
   tailRightBtn: document.getElementById("tailRightBtn"),
+  toggleTailBtn: document.getElementById("toggleTailBtn"),
+  propFontFamily: document.getElementById("propFontFamily"),
   propFontSize: document.getElementById("propFontSize"),
   propPadding: document.getElementById("propPadding"),
   propStrokeWidth: document.getElementById("propStrokeWidth"),
@@ -102,6 +105,25 @@ const LINE_WIDTH_LEVELS = [3, 4, 5];
 const ROUGHNESS_LEVELS = [0.72, 1.2];
 const WOBBLE_LEVELS = [0.85, 1.35];
 const RECENT_TEMPLATE_LIMIT = 5;
+const FONT_FAMILY_KEYS = new Set([
+  "auto",
+  "jp-gothic",
+  "jp-mincho",
+  "classic-serif",
+  "classic-sans",
+  "rounded",
+  "comic",
+  "mono",
+]);
+const FONT_FAMILY_STACKS = {
+  "jp-gothic": '"BIZ UDPGothic", "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif',
+  "jp-mincho": '"BIZ UDPMincho", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", "MS PMincho", serif',
+  "classic-serif": '"Georgia", "Times New Roman", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif',
+  "classic-sans": '"Arial", "Helvetica Neue", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif',
+  rounded: '"Hiragino Maru Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif',
+  comic: '"Comic Sans MS", "Trebuchet MS", "Noto Sans JP", "Yu Gothic UI", sans-serif',
+  mono: '"Cascadia Mono", "Consolas", "Noto Sans Mono CJK JP", "MS Gothic", monospace',
+};
 
 const templatePathCache = new Map();
 const roughCanvasCache = new WeakMap();
@@ -125,6 +147,18 @@ function normalizeShape(value) {
 
 function normalizeTextDirection(value) {
   return TEXT_DIRECTION_SET.has(value) ? value : "horizontal";
+}
+
+function normalizeFontFamily(value) {
+  return FONT_FAMILY_KEYS.has(value) ? value : "auto";
+}
+
+function resolveFontStack(fontFamily, textDirection) {
+  const normalized = normalizeFontFamily(fontFamily);
+  if (normalized === "auto") {
+    return textDirection === "vertical" ? FONT_FAMILY_STACKS["jp-mincho"] : FONT_FAMILY_STACKS["jp-gothic"];
+  }
+  return FONT_FAMILY_STACKS[normalized] || FONT_FAMILY_STACKS["jp-gothic"];
 }
 
 function normalizeRenderMode(value) {
@@ -489,6 +523,7 @@ function normalizeObject(raw) {
     strokeWidth: Math.max(0, safeNumber(raw.strokeWidth, 0)),
     textColor: colorOrFallback(raw.textColor, "#111111"),
     fontSize: Math.max(8, safeNumber(raw.fontSize, 24)),
+    fontFamily: normalizeFontFamily(raw.fontFamily),
     padding: Math.max(0, safeNumber(raw.padding, 10)),
     align: raw.align === "left" ? "left" : "center",
     opacity: clamp(Math.round(safeNumber(raw.opacity, 100)), 5, 100),
@@ -504,6 +539,7 @@ function normalizeObject(raw) {
       : null;
     base.tailAnchorId = typeof raw.tailAnchorId === "string" ? raw.tailAnchorId : null;
     base.tailSnap = base.renderMode === "template" ? raw.tailSnap !== false : false;
+    base.tailVisible = raw.tailVisible !== false;
     base.tailX = safeNumber(raw.tailX, base.x + base.w / 2);
     base.tailY = safeNumber(raw.tailY, base.y + base.h + 40);
     base.tailSize = Math.max(4, safeNumber(raw.tailSize, 16));
@@ -705,10 +741,35 @@ function markTailManualControl(obj) {
   if (!obj || obj.kind !== "bubble") {
     return;
   }
+  obj.tailVisible = true;
   if (obj.renderMode === "template") {
     obj.tailSnap = false;
     obj.tailAnchorId = null;
   }
+}
+
+function setTailVisible(obj, visible) {
+  if (!obj || obj.kind !== "bubble") {
+    return;
+  }
+  obj.tailVisible = Boolean(visible);
+  if (!obj.tailVisible) {
+    obj.tailSnap = false;
+    obj.tailAnchorId = null;
+  }
+}
+
+function toggleSelectedTailVisibility() {
+  const obj = currentSelection();
+  if (!obj || obj.kind !== "bubble") {
+    return;
+  }
+  setTailVisible(obj, !obj.tailVisible);
+  clampObjectBounds(obj);
+  syncPropertyPanel();
+  renderTemplateGrid();
+  draw();
+  pushHistory();
 }
 
 function formatTemplateIdForPanel(obj) {
@@ -786,6 +847,7 @@ function makeBubble() {
       : null,
     tailAnchorId: null,
     tailSnap: Boolean(template),
+    tailVisible: true,
     shape: template ? mapTemplateCategoryToShape(template.category) : "ellipse",
     text: "dialogue",
     x,
@@ -800,6 +862,7 @@ function makeBubble() {
     strokeWidth: template ? autoTemplate.variant.lineWidth : 4,
     textColor: "#111111",
     fontSize: Math.max(24, Math.round(Math.min(w, h) * 0.24)),
+    fontFamily: "auto",
     padding: 22,
     align: "center",
     opacity: 100,
@@ -826,6 +889,7 @@ function makeText() {
     useTextBox: false,
     textColor: "#111111",
     fontSize: Math.max(24, Math.round(Math.min(w, h) * 0.35)),
+    fontFamily: "auto",
     padding: 10,
     align: "left",
     opacity: 100,
@@ -847,6 +911,7 @@ function applyCatalogItemToBubble(obj, item) {
   };
   obj.tailAnchorId = null;
   obj.tailSnap = true;
+  obj.tailVisible = true;
   obj.strokeWidth = item.variant.lineWidth;
   obj.fill = colorOrFallback(template.defaultStyle.fill, obj.fill);
   obj.stroke = colorOrFallback(template.defaultStyle.stroke, obj.stroke);
@@ -1359,7 +1424,7 @@ function drawTemplateBubble(ctx, obj, template) {
   const sy = obj.h / vb.h;
   const tx = obj.x - vb.x * sx;
   const ty = obj.y - vb.y * sy;
-  const anchor = obj.tailSnap ? chooseTemplateAnchor(obj, template) : null;
+  const anchor = obj.tailVisible && obj.tailSnap ? chooseTemplateAnchor(obj, template) : null;
   const base = anchor || bubbleTailBase(obj);
   if (anchor) {
     obj.tailAnchorId = anchor.id;
@@ -1374,14 +1439,16 @@ function drawTemplateBubble(ctx, obj, template) {
   ctx.lineCap = "round";
   ctx.setLineDash(template.category === "whisper" ? [12, 10] : []);
 
-  if (template.category === "thought") {
-    drawThoughtTail(ctx, obj, base);
-  } else if (template.category === "whisper") {
-    drawTailTriangle(ctx, obj, base, 0.62);
-  } else if (template.category === "shout") {
-    drawTailTriangle(ctx, obj, base, 1.12);
-  } else {
-    drawTailTriangle(ctx, obj, base, 1);
+  if (obj.tailVisible) {
+    if (template.category === "thought") {
+      drawThoughtTail(ctx, obj, base);
+    } else if (template.category === "whisper") {
+      drawTailTriangle(ctx, obj, base, 0.62);
+    } else if (template.category === "shout") {
+      drawTailTriangle(ctx, obj, base, 1.12);
+    } else {
+      drawTailTriangle(ctx, obj, base, 1);
+    }
   }
 
   if (path) {
@@ -1464,7 +1531,7 @@ function drawHorizontalText(ctx, obj, centered) {
   const padding = Math.max(0, Number(obj.padding) || 0);
   const align = obj.align === "left" ? "left" : "center";
   const maxTextWidth = Math.max(1, obj.w - padding * 2);
-  ctx.font = `${fontSize}px "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif`;
+  ctx.font = `${fontSize}px ${resolveFontStack(obj.fontFamily, "horizontal")}`;
   ctx.fillStyle = colorOrFallback(obj.textColor, "#111111");
   ctx.textAlign = align;
   ctx.textBaseline = "alphabetic";
@@ -1495,7 +1562,7 @@ function drawVerticalText(ctx, obj, centered) {
   const usedCols = Math.min(columns.length, maxCols);
   const totalColsWidth = usedCols * colWidth;
 
-  ctx.font = `${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", serif`;
+  ctx.font = `${fontSize}px ${resolveFontStack(obj.fontFamily, "vertical")}`;
   ctx.fillStyle = colorOrFallback(obj.textColor, "#111111");
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -1571,14 +1638,16 @@ function drawProceduralBubble(ctx, obj) {
   ctx.lineCap = "round";
   ctx.setLineDash(obj.shape === "whisper" ? [12, 10] : []);
 
-  if (obj.shape === "thought") {
-    drawThoughtTail(ctx, obj, base);
-  } else if (obj.shape === "whisper") {
-    drawTailTriangle(ctx, obj, base, 0.62);
-  } else if (obj.shape === "shout") {
-    drawTailTriangle(ctx, obj, base, 1.15);
-  } else {
-    drawTailTriangle(ctx, obj, base, 1);
+  if (obj.tailVisible) {
+    if (obj.shape === "thought") {
+      drawThoughtTail(ctx, obj, base);
+    } else if (obj.shape === "whisper") {
+      drawTailTriangle(ctx, obj, base, 0.62);
+    } else if (obj.shape === "shout") {
+      drawTailTriangle(ctx, obj, base, 1.15);
+    } else {
+      drawTailTriangle(ctx, obj, base, 1);
+    }
   }
 
   drawBubbleBodyPath(ctx, obj);
@@ -1637,7 +1706,7 @@ function drawSelection(ctx, obj, scale) {
   ctx.fill();
   ctx.stroke();
 
-  if (obj.kind === "bubble") {
+  if (obj.kind === "bubble" && obj.tailVisible) {
     const centerX = obj.x + obj.w / 2;
     const centerY = obj.y + obj.h / 2;
     ctx.beginPath();
@@ -1731,7 +1800,7 @@ function handleHit(point, obj) {
   if (Math.hypot(point.x - resize.x, point.y - resize.y) <= resizeRadius) {
     return "resize";
   }
-  if (obj.kind === "bubble" && Math.hypot(point.x - obj.tailX, point.y - obj.tailY) <= tailRadius) {
+  if (obj.kind === "bubble" && obj.tailVisible && Math.hypot(point.x - obj.tailX, point.y - obj.tailY) <= tailRadius) {
     return "tail";
   }
   return null;
@@ -1754,10 +1823,12 @@ function clampObjectBounds(obj) {
   obj.y = clamp(obj.y, 0, Math.max(0, state.imageHeight - obj.h));
   obj.opacity = clamp(Math.round(safeNumber(obj.opacity, 100)), 5, 100);
   obj.textDirection = normalizeTextDirection(obj.textDirection);
+  obj.fontFamily = normalizeFontFamily(obj.fontFamily);
   if (obj.kind === "bubble") {
     obj.shape = normalizeShape(obj.shape);
     obj.renderMode = normalizeRenderMode(obj.renderMode);
     obj.templateId = typeof obj.templateId === "string" ? obj.templateId : null;
+    obj.tailVisible = obj.tailVisible !== false;
     obj.tailSnap = obj.tailSnap === true;
     obj.tailAnchorId = typeof obj.tailAnchorId === "string" ? obj.tailAnchorId : null;
     if (obj.templateId) {
@@ -1773,6 +1844,10 @@ function clampObjectBounds(obj) {
         obj.tailAnchorId = null;
       }
     } else {
+      obj.tailSnap = false;
+      obj.tailAnchorId = null;
+    }
+    if (!obj.tailVisible) {
       obj.tailSnap = false;
       obj.tailAnchorId = null;
     }
@@ -1801,6 +1876,7 @@ function syncPropertyPanel() {
 
   const isBubble = obj.kind === "bubble";
   const isTemplateBubble = isBubble && obj.renderMode === "template";
+  const isTailVisible = isBubble && obj.tailVisible !== false;
 
   els.propKind.value = obj.kind;
   els.propRenderMode.value = isBubble ? normalizeRenderMode(obj.renderMode) : "procedural";
@@ -1814,6 +1890,7 @@ function syncPropertyPanel() {
   els.propTailX.value = Math.round(obj.tailX || obj.x + obj.w / 2);
   els.propTailY.value = Math.round(obj.tailY || obj.y + obj.h + 60);
   els.propTailSize.value = Math.round(obj.tailSize || 16);
+  els.propFontFamily.value = normalizeFontFamily(obj.fontFamily);
   els.propFontSize.value = Math.round(obj.fontSize || 28);
   els.propPadding.value = Math.round(obj.padding || 0);
   els.propStrokeWidth.value = Math.round(obj.strokeWidth || 0);
@@ -1825,10 +1902,15 @@ function syncPropertyPanel() {
   els.propStroke.value = colorOrFallback(obj.stroke, "#1b1e24");
   els.propTextColor.value = colorOrFallback(obj.textColor, "#111111");
   els.propUseTextBox.checked = Boolean(obj.useTextBox);
+  els.propTailVisible.checked = isTailVisible;
   els.propTailSnap.checked = isTemplateBubble ? obj.tailSnap === true : false;
+  if (els.toggleTailBtn) {
+    els.toggleTailBtn.textContent = isTailVisible ? "Hide Tail" : "Show Tail";
+  }
 
   els.propRenderMode.disabled = !isBubble || state.templateLoadFailed;
-  els.propTailSnap.disabled = !isTemplateBubble;
+  els.propTailVisible.disabled = !isBubble;
+  els.propTailSnap.disabled = !isTemplateBubble || !isTailVisible;
   els.propShapeWrap.classList.toggle("hidden", !shouldShowShapeSelector(obj));
   els.bubbleTailFields.classList.toggle("hidden", !isBubble);
   els.propTextBoxField.classList.toggle("hidden", isBubble);
@@ -1840,8 +1922,9 @@ function syncPropertyPanel() {
     els.tailUpBtn,
     els.tailDownBtn,
     els.tailRightBtn,
+    els.toggleTailBtn,
   ].forEach((element) => {
-    element.disabled = !isBubble;
+    element.disabled = !isBubble || !isTailVisible;
   });
   state.syncingProps = false;
 }
@@ -1861,6 +1944,7 @@ function applyPropertyChanges(event) {
   obj.w = safeNumber(els.propW.value, 24);
   obj.h = safeNumber(els.propH.value, 24);
   obj.fontSize = Math.max(8, safeNumber(els.propFontSize.value, 24));
+  obj.fontFamily = normalizeFontFamily(els.propFontFamily.value);
   obj.padding = Math.max(0, safeNumber(els.propPadding.value, 0));
   obj.strokeWidth = Math.max(0, safeNumber(els.propStrokeWidth.value, 0));
   obj.align = els.propAlign.value === "left" ? "left" : "center";
@@ -1882,7 +1966,7 @@ function applyPropertyChanges(event) {
       obj.tailAnchorId = null;
     } else if (obj.templateId) {
       obj.templateVariant = normalizeTemplateVariant(obj.templateVariant, obj.templateId);
-      obj.tailSnap = Boolean(els.propTailSnap.checked);
+      obj.tailSnap = Boolean(els.propTailSnap.checked) && Boolean(els.propTailVisible.checked);
       if (!obj.tailSnap) {
         obj.tailAnchorId = null;
       }
@@ -1895,18 +1979,27 @@ function applyPropertyChanges(event) {
         obj.shape = mapTemplateCategoryToShape(template.category);
       }
     }
+    obj.tailVisible = Boolean(els.propTailVisible.checked);
     obj.tailX = safeNumber(els.propTailX.value, obj.x + obj.w / 2);
     obj.tailY = safeNumber(els.propTailY.value, obj.y + obj.h + 50);
     obj.tailSize = Math.max(4, safeNumber(els.propTailSize.value, 16));
     if (targetId === "propTailX" || targetId === "propTailY" || targetId === "propTailSize") {
       markTailManualControl(obj);
       els.propTailSnap.checked = false;
+      els.propTailVisible.checked = true;
     }
     if (targetId === "propTailSnap") {
-      obj.tailSnap = Boolean(els.propTailSnap.checked) && obj.renderMode === "template";
+      obj.tailSnap =
+        Boolean(els.propTailSnap.checked) &&
+        Boolean(els.propTailVisible.checked) &&
+        obj.renderMode === "template";
       if (!obj.tailSnap) {
         obj.tailAnchorId = null;
       }
+    }
+    if (targetId === "propTailVisible" && !obj.tailVisible) {
+      obj.tailSnap = false;
+      obj.tailAnchorId = null;
     }
   } else {
     obj.useTextBox = Boolean(els.propUseTextBox.checked);
@@ -1917,7 +2010,7 @@ function applyPropertyChanges(event) {
     els.propTemplateId.value = formatTemplateIdForPanel(obj);
     els.propRenderMode.value = normalizeRenderMode(obj.renderMode);
   }
-  if (targetId === "propRenderMode" || targetId === "propTailSnap") {
+  if (targetId === "propRenderMode" || targetId === "propTailSnap" || targetId === "propTailVisible") {
     syncPropertyPanel();
   }
   if (obj.kind === "bubble") {
@@ -2017,7 +2110,7 @@ function pointerMove(event) {
   } else if (state.pointerMode === "resize") {
     obj.w = Math.max(24, point.x - obj.x);
     obj.h = Math.max(24, point.y - obj.y);
-  } else if (state.pointerMode === "tail" && obj.kind === "bubble") {
+  } else if (state.pointerMode === "tail" && obj.kind === "bubble" && obj.tailVisible) {
     obj.tailX = point.x;
     obj.tailY = point.y;
     markTailManualControl(obj);
@@ -2053,7 +2146,7 @@ function pointerUp(event) {
 
 function nudgeTail(dx, dy) {
   const obj = currentSelection();
-  if (!obj || obj.kind !== "bubble") {
+  if (!obj || obj.kind !== "bubble" || !obj.tailVisible) {
     return;
   }
   markTailManualControl(obj);
@@ -2183,6 +2276,7 @@ function bindEvents() {
     els.propTailX,
     els.propTailY,
     els.propTailSize,
+    els.propFontFamily,
     els.propFontSize,
     els.propPadding,
     els.propStrokeWidth,
@@ -2192,6 +2286,7 @@ function bindEvents() {
     els.propFill,
     els.propStroke,
     els.propTextColor,
+    els.propTailVisible,
     els.propTailSnap,
     els.propUseTextBox,
   ].forEach((element) => {
@@ -2203,6 +2298,7 @@ function bindEvents() {
   els.tailUpBtn.addEventListener("click", () => nudgeTail(0, -8));
   els.tailDownBtn.addEventListener("click", () => nudgeTail(0, 8));
   els.tailRightBtn.addEventListener("click", () => nudgeTail(8, 0));
+  els.toggleTailBtn.addEventListener("click", toggleSelectedTailVisibility);
 
   els.canvas.addEventListener("pointerdown", pointerDown);
   window.addEventListener("pointermove", pointerMove, { passive: false });

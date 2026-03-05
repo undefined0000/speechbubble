@@ -16,6 +16,8 @@ def test_root_returns_editor_html() -> None:
     assert "templateGrid" in response.text
     assert "propRenderMode" in response.text
     assert "propTemplateId" in response.text
+    assert "propFontFamily" in response.text
+    assert "propTailVisible" in response.text
     assert "propTailSize" in response.text
     assert "propDirection" in response.text
     assert "propOpacity" in response.text

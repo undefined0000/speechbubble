@@ -509,10 +509,14 @@
               </select>
             </div>
             <div class="field">
-              <label>Tail Snap</label>
+              <label>Tail</label>
+              <div class="row" style="margin-top: 2px;">
+                <input id="propTailVisible" type="checkbox">
+                <span>Visible</span>
+              </div>
               <div class="row" style="margin-top: 2px;">
                 <input id="propTailSnap" type="checkbox">
-                <span>Enable</span>
+                <span>Snap</span>
               </div>
             </div>
           </div>
@@ -536,6 +540,10 @@
             <div class="field"><label>Tail Y</label><input id="propTailY" type="number"></div>
             <div class="field"><label>Tail Size</label><input id="propTailSize" type="number" min="4"></div>
             <div class="field">
+              <label>Tail Quick</label>
+              <div class="row tight" style="margin-bottom: 4px;">
+                <button type="button" id="toggleTailBtn">Toggle Tail</button>
+              </div>
               <label>Tail Nudge</label>
               <div class="row tight">
                 <button type="button" id="tailLeftBtn">Left</button>
@@ -547,6 +555,19 @@
           </div>
 
           <div class="field-grid" style="margin-top: 8px;">
+            <div class="field">
+              <label>Font Family</label>
+              <select id="propFontFamily">
+                <option value="auto">auto</option>
+                <option value="jp-gothic">jp-gothic</option>
+                <option value="jp-mincho">jp-mincho</option>
+                <option value="classic-serif">classic-serif</option>
+                <option value="classic-sans">classic-sans</option>
+                <option value="rounded">rounded</option>
+                <option value="comic">comic</option>
+                <option value="mono">mono</option>
+              </select>
+            </div>
             <div class="field"><label>Font Size</label><input id="propFontSize" type="number" min="8"></div>
             <div class="field"><label>Padding</label><input id="propPadding" type="number" min="0"></div>
             <div class="field"><label>Stroke Width</label><input id="propStrokeWidth" type="number" min="0"></div>
