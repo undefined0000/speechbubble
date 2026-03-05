@@ -33,10 +33,18 @@ const els = {
   propH: document.getElementById("propH"),
   propTailX: document.getElementById("propTailX"),
   propTailY: document.getElementById("propTailY"),
+  propTailSize: document.getElementById("propTailSize"),
+  tailLeftBtn: document.getElementById("tailLeftBtn"),
+  tailUpBtn: document.getElementById("tailUpBtn"),
+  tailDownBtn: document.getElementById("tailDownBtn"),
+  tailRightBtn: document.getElementById("tailRightBtn"),
   propFontSize: document.getElementById("propFontSize"),
   propPadding: document.getElementById("propPadding"),
   propStrokeWidth: document.getElementById("propStrokeWidth"),
   propAlign: document.getElementById("propAlign"),
+  propDirection: document.getElementById("propDirection"),
+  propOpacity: document.getElementById("propOpacity"),
+  propOpacityLabel: document.getElementById("propOpacityLabel"),
   propFill: document.getElementById("propFill"),
   propStroke: document.getElementById("propStroke"),
   propTextColor: document.getElementById("propTextColor"),
@@ -66,6 +74,8 @@ const state = {
 };
 
 const MAX_HISTORY = 80;
+const SHAPE_SET = new Set(["ellipse", "rounded", "cloud", "shout", "thought", "whisper"]);
+const TEXT_DIRECTION_SET = new Set(["horizontal", "vertical"]);
 
 function deepCopy(value) {
   return JSON.parse(JSON.stringify(value));
@@ -73,6 +83,19 @@ function deepCopy(value) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function safeNumber(value, fallback) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function normalizeShape(value) {
+  return SHAPE_SET.has(value) ? value : "ellipse";
+}
+
+function normalizeTextDirection(value) {
+  return TEXT_DIRECTION_SET.has(value) ? value : "horizontal";
 }
 
 function status(text, kind = "") {
@@ -89,6 +112,46 @@ function byId(id) {
 
 function currentSelection() {
   return byId(state.selectedId);
+}
+
+function normalizeObject(raw) {
+  const base = {
+    id: Number(raw.id) || 0,
+    kind: raw.kind === "text" ? "text" : "bubble",
+    text: String(raw.text || ""),
+    x: safeNumber(raw.x, 0),
+    y: safeNumber(raw.y, 0),
+    w: Math.max(24, safeNumber(raw.w, 120)),
+    h: Math.max(24, safeNumber(raw.h, 60)),
+    fill: colorOrFallback(raw.fill, "#ffffff"),
+    stroke: colorOrFallback(raw.stroke, "#1b1e24"),
+    strokeWidth: Math.max(0, safeNumber(raw.strokeWidth, 0)),
+    textColor: colorOrFallback(raw.textColor, "#111111"),
+    fontSize: Math.max(8, safeNumber(raw.fontSize, 24)),
+    padding: Math.max(0, safeNumber(raw.padding, 10)),
+    align: raw.align === "left" ? "left" : "center",
+    opacity: clamp(Math.round(safeNumber(raw.opacity, 100)), 5, 100),
+    textDirection: normalizeTextDirection(raw.textDirection),
+  };
+
+  if (base.kind === "bubble") {
+    base.shape = normalizeShape(raw.shape);
+    base.tailX = safeNumber(raw.tailX, base.x + base.w / 2);
+    base.tailY = safeNumber(raw.tailY, base.y + base.h + 40);
+    base.tailSize = Math.max(4, safeNumber(raw.tailSize, 16));
+  } else {
+    base.useTextBox = Boolean(raw.useTextBox);
+  }
+  return base;
+}
+
+function normalizeAndClampAllObjects() {
+  state.objects = state.objects.map((obj) => normalizeObject(obj));
+  for (const obj of state.objects) {
+    clampObjectBounds(obj);
+  }
+  const maxId = state.objects.reduce((max, obj) => Math.max(max, Number(obj.id) || 0), 0);
+  state.nextId = Math.max(state.nextId, maxId + 1);
 }
 
 function pushHistory() {
@@ -116,6 +179,7 @@ function restoreHistory(index) {
   const snap = state.history[index];
   state.objects = deepCopy(snap.objects);
   state.selectedId = snap.selectedId;
+  normalizeAndClampAllObjects();
   state.historyIndex = index;
   syncUndoRedoButtons();
   syncPropertyPanel();
@@ -205,6 +269,7 @@ function makeBubble() {
     h,
     tailX: x + w * 0.5,
     tailY: y + h + Math.min(110, state.imageHeight * 0.12),
+    tailSize: Math.max(10, Math.round(Math.min(w, h) * 0.12)),
     fill: "#ffffff",
     stroke: "#1b1e24",
     strokeWidth: 4,
@@ -212,6 +277,8 @@ function makeBubble() {
     fontSize: Math.max(24, Math.round(Math.min(w, h) * 0.24)),
     padding: 22,
     align: "center",
+    opacity: 100,
+    textDirection: "horizontal",
   };
 }
 
@@ -236,9 +303,10 @@ function makeText() {
     fontSize: Math.max(24, Math.round(Math.min(w, h) * 0.35)),
     padding: 10,
     align: "left",
+    opacity: 100,
+    textDirection: "horizontal",
   };
 }
-
 function addObject(kind) {
   if (!state.image) {
     status("先に画像を読み込んでください。", "err");
@@ -251,7 +319,7 @@ function addObject(kind) {
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status(`${kind === "bubble" ? "吹き出し" : "テキスト"}を追加しました。`, "ok");
+  status(kind === "bubble" ? "吹き出しを追加しました。" : "テキストを追加しました。", "ok");
 }
 
 function deleteSelected() {
@@ -264,7 +332,7 @@ function deleteSelected() {
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status("選択オブジェクトを削除しました。", "ok");
+  status("選択中のオブジェクトを削除しました。", "ok");
 }
 
 function duplicateSelected() {
@@ -321,11 +389,11 @@ function downloadBlob(blob, filename) {
 
 function saveProject() {
   if (!state.image || !state.imageDataUrl) {
-    status("保存する画像がありません。", "err");
+    status("保存前に画像を読み込んでください。", "err");
     return;
   }
   const payload = {
-    version: 1,
+    version: 2,
     imageDataUrl: state.imageDataUrl,
     imageWidth: state.imageWidth,
     imageHeight: state.imageHeight,
@@ -344,14 +412,16 @@ async function loadProjectFile(file) {
     throw new Error("不正なJSONです。");
   }
   if (!payload.imageDataUrl || !Array.isArray(payload.objects)) {
-    throw new Error("必要な項目が不足しています。");
+    throw new Error("imageDataUrl / objects が不足しています。");
   }
   await setBackgroundFromDataUrl(payload.imageDataUrl);
-  state.objects = deepCopy(payload.objects);
-  state.nextId = Number(payload.nextId) > 0 ? Number(payload.nextId) : 1;
+  state.objects = payload.objects.map((obj) => normalizeObject(obj));
+  const maxId = state.objects.reduce((max, obj) => Math.max(max, Number(obj.id) || 0), 0);
+  state.nextId = Math.max(Number(payload.nextId) || 1, maxId + 1);
   state.selectedId = state.objects.length ? state.objects[state.objects.length - 1].id : null;
   state.history = [];
   state.historyIndex = -1;
+  normalizeAndClampAllObjects();
   pushHistory();
   syncPropertyPanel();
   renderLayerList();
@@ -369,7 +439,7 @@ function exportPng() {
   off.height = state.imageHeight;
   const ctx = off.getContext("2d");
   if (!ctx) {
-    status("キャンバス初期化に失敗しました。", "err");
+    status("キャンバスの初期化に失敗しました。", "err");
     return;
   }
   renderScene(ctx, 1, false);
@@ -395,6 +465,72 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
   ctx.lineTo(x, y + rr);
   ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function ellipsePath(ctx, x, y, w, h) {
+  ctx.beginPath();
+  ctx.ellipse(
+    x + w / 2,
+    y + h / 2,
+    Math.max(4, w / 2),
+    Math.max(4, h / 2),
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.closePath();
+}
+
+function cloudPath(ctx, x, y, w, h, roughness = 0.14) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const rx = Math.max(10, w / 2);
+  const ry = Math.max(10, h / 2);
+  const points = [];
+  const count = clamp(Math.round((w + h) / 28), 14, 34);
+
+  for (let i = 0; i < count; i += 1) {
+    const t = (i / count) * Math.PI * 2;
+    const mod = 1 + roughness * Math.sin(t * 3.7) + roughness * 0.65 * Math.cos(t * 6.2);
+    points.push({
+      x: cx + Math.cos(t) * rx * mod,
+      y: cy + Math.sin(t) * ry * mod,
+    });
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+  const firstMid = { x: (first.x + last.x) / 2, y: (first.y + last.y) / 2 };
+  ctx.beginPath();
+  ctx.moveTo(firstMid.x, firstMid.y);
+  for (let i = 0; i < points.length; i += 1) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+    const mid = { x: (current.x + next.x) / 2, y: (current.y + next.y) / 2 };
+    ctx.quadraticCurveTo(current.x, current.y, mid.x, mid.y);
+  }
+  ctx.closePath();
+}
+
+function shoutPath(ctx, x, y, w, h) {
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const rx = Math.max(10, w / 2);
+  const ry = Math.max(10, h / 2);
+  const spikes = clamp(Math.round((w + h) / 18), 20, 52);
+  ctx.beginPath();
+  for (let i = 0; i < spikes; i += 1) {
+    const t = (i / spikes) * Math.PI * 2;
+    const ratio = i % 2 === 0 ? 1.05 : 0.72;
+    const px = cx + Math.cos(t) * rx * ratio;
+    const py = cy + Math.sin(t) * ry * ratio;
+    if (i === 0) {
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
+  }
   ctx.closePath();
 }
 
@@ -433,6 +569,81 @@ function bubbleTailBase(obj) {
   return { x: localX, y: obj.y + obj.h };
 }
 
+function drawTailTriangle(ctx, obj, base, scaleRatio = 1) {
+  const rawTail = safeNumber(obj.tailSize, Math.min(obj.w, obj.h) * 0.12);
+  const tailWidth = Math.max(6, rawTail * scaleRatio);
+  const vx = obj.tailX - base.x;
+  const vy = obj.tailY - base.y;
+  const len = Math.max(1, Math.hypot(vx, vy));
+  const px = -vy / len;
+  const py = vx / len;
+  const left = { x: base.x + px * tailWidth, y: base.y + py * tailWidth };
+  const right = { x: base.x - px * tailWidth, y: base.y - py * tailWidth };
+
+  ctx.beginPath();
+  ctx.moveTo(obj.tailX, obj.tailY);
+  ctx.lineTo(left.x, left.y);
+  ctx.lineTo(right.x, right.y);
+  ctx.closePath();
+  ctx.fill();
+  if ((Number(obj.strokeWidth) || 0) > 0) {
+    ctx.stroke();
+  }
+}
+
+function drawThoughtTail(ctx, obj, base) {
+  const radius = Math.max(4, safeNumber(obj.tailSize, 16));
+  const dx = obj.tailX - base.x;
+  const dy = obj.tailY - base.y;
+  const steps = 3;
+
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / (steps + 1);
+    const cx = base.x + dx * t;
+    const cy = base.y + dy * t;
+    const r = radius * (0.88 - t * 0.55);
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(2.5, r), 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+    if ((Number(obj.strokeWidth) || 0) > 0) {
+      ctx.stroke();
+    }
+  }
+
+  ctx.beginPath();
+  ctx.arc(obj.tailX, obj.tailY, Math.max(2, radius * 0.34), 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.fill();
+  if ((Number(obj.strokeWidth) || 0) > 0) {
+    ctx.stroke();
+  }
+}
+
+function drawBubbleBodyPath(ctx, obj) {
+  switch (obj.shape) {
+    case "rounded":
+      roundedRectPath(ctx, obj.x, obj.y, obj.w, obj.h, Math.min(obj.w, obj.h) * 0.22);
+      break;
+    case "cloud":
+      cloudPath(ctx, obj.x, obj.y, obj.w, obj.h, 0.14);
+      break;
+    case "shout":
+      shoutPath(ctx, obj.x, obj.y, obj.w, obj.h);
+      break;
+    case "thought":
+      cloudPath(ctx, obj.x, obj.y, obj.w, obj.h, 0.1);
+      break;
+    case "whisper":
+      roundedRectPath(ctx, obj.x, obj.y, obj.w, obj.h, Math.min(obj.w, obj.h) * 0.32);
+      break;
+    case "ellipse":
+    default:
+      ellipsePath(ctx, obj.x, obj.y, obj.w, obj.h);
+      break;
+  }
+}
+
 function wrapText(ctx, text, maxWidth) {
   const result = [];
   const paragraphs = String(text || "").replace(/\r/g, "").split("\n");
@@ -464,15 +675,39 @@ function wrapText(ctx, text, maxWidth) {
   return result.length ? result : [""];
 }
 
-function drawTextInObject(ctx, obj, centered) {
+function layoutVerticalColumns(text, maxRows, maxCols) {
+  const columns = [[]];
+  const chars = Array.from(String(text || "").replace(/\r/g, ""));
+  for (const ch of chars) {
+    if (ch === "\n") {
+      if (columns.length >= maxCols) {
+        break;
+      }
+      columns.push([]);
+      continue;
+    }
+    let col = columns[columns.length - 1];
+    if (col.length >= maxRows) {
+      if (columns.length >= maxCols) {
+        break;
+      }
+      columns.push([]);
+      col = columns[columns.length - 1];
+    }
+    col.push(ch);
+  }
+  return columns.length ? columns : [[""]];
+}
+
+function drawHorizontalText(ctx, obj, centered) {
   const fontSize = Math.max(8, Number(obj.fontSize) || 24);
   const padding = Math.max(0, Number(obj.padding) || 0);
   const align = obj.align === "left" ? "left" : "center";
   const maxTextWidth = Math.max(1, obj.w - padding * 2);
-  ctx.save();
   ctx.font = `${fontSize}px "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif`;
   ctx.fillStyle = colorOrFallback(obj.textColor, "#111111");
   ctx.textAlign = align;
+  ctx.textBaseline = "alphabetic";
   const lines = wrapText(ctx, obj.text || "", maxTextWidth);
   const lineHeight = fontSize * 1.28;
   const textHeight = lines.length * lineHeight;
@@ -485,6 +720,64 @@ function drawTextInObject(ctx, obj, centered) {
     ctx.fillText(lines[i], x, y);
     y += lineHeight;
   }
+}
+
+function drawVerticalText(ctx, obj, centered) {
+  const fontSize = Math.max(8, Number(obj.fontSize) || 24);
+  const padding = Math.max(0, Number(obj.padding) || 0);
+  const innerW = Math.max(1, obj.w - padding * 2);
+  const innerH = Math.max(1, obj.h - padding * 2);
+  const colWidth = Math.max(fontSize * 1.15, 10);
+  const rowStep = Math.max(fontSize * 1.15, 10);
+  const maxRows = Math.max(1, Math.floor(innerH / rowStep));
+  const maxCols = Math.max(1, Math.floor(innerW / colWidth));
+  const columns = layoutVerticalColumns(obj.text || "", maxRows, maxCols);
+  const usedCols = Math.min(columns.length, maxCols);
+  const totalColsWidth = usedCols * colWidth;
+
+  ctx.font = `${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", serif`;
+  ctx.fillStyle = colorOrFallback(obj.textColor, "#111111");
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const blockRight = obj.align === "left"
+    ? obj.x + obj.w - padding
+    : obj.x + (obj.w + totalColsWidth) / 2;
+  if (centered) {
+    const maxUsedRows = columns.reduce((max, col) => Math.max(max, col.length), 1);
+    const totalRowsHeight = maxUsedRows * rowStep;
+    const offsetY = Math.max(0, (innerH - totalRowsHeight) / 2);
+    const baseY = obj.y + padding + offsetY + rowStep / 2;
+    for (let colIndex = 0; colIndex < usedCols; colIndex += 1) {
+      const x = blockRight - colWidth * colIndex - colWidth / 2;
+      const col = columns[colIndex];
+      for (let rowIndex = 0; rowIndex < col.length && rowIndex < maxRows; rowIndex += 1) {
+        const y = baseY + rowStep * rowIndex;
+        ctx.fillText(col[rowIndex], x, y);
+      }
+    }
+    return;
+  }
+
+  const topY = obj.y + padding + rowStep / 2;
+  for (let colIndex = 0; colIndex < usedCols; colIndex += 1) {
+    const x = blockRight - colWidth * colIndex - colWidth / 2;
+    const col = columns[colIndex];
+    for (let rowIndex = 0; rowIndex < col.length && rowIndex < maxRows; rowIndex += 1) {
+      const y = topY + rowStep * rowIndex;
+      ctx.fillText(col[rowIndex], x, y);
+    }
+  }
+}
+
+function drawTextInObject(ctx, obj, centered) {
+  ctx.save();
+  ctx.globalAlpha = clamp(safeNumber(obj.opacity, 100), 5, 100) / 100;
+  if (obj.textDirection === "vertical") {
+    drawVerticalText(ctx, obj, centered);
+  } else {
+    drawHorizontalText(ctx, obj, centered);
+  }
   ctx.restore();
 }
 
@@ -493,47 +786,27 @@ function drawBubble(ctx, obj) {
   const stroke = colorOrFallback(obj.stroke, "#1b1e24");
   const strokeWidth = Math.max(0, Number(obj.strokeWidth) || 0);
   const base = bubbleTailBase(obj);
-  const tailWidth = Math.max(10, Math.min(obj.w, obj.h) * 0.12);
-  const vx = obj.tailX - base.x;
-  const vy = obj.tailY - base.y;
-  const len = Math.max(1, Math.hypot(vx, vy));
-  const px = -vy / len;
-  const py = vx / len;
-  const left = { x: base.x + px * tailWidth, y: base.y + py * tailWidth };
-  const right = { x: base.x - px * tailWidth, y: base.y - py * tailWidth };
 
   ctx.save();
+  ctx.globalAlpha = clamp(safeNumber(obj.opacity, 100), 5, 100) / 100;
   ctx.fillStyle = fill;
   ctx.strokeStyle = stroke;
   ctx.lineWidth = strokeWidth;
-  ctx.lineJoin = "round";
+  ctx.lineJoin = obj.shape === "shout" ? "miter" : "round";
   ctx.lineCap = "round";
+  ctx.setLineDash(obj.shape === "whisper" ? [12, 10] : []);
 
-  ctx.beginPath();
-  ctx.moveTo(obj.tailX, obj.tailY);
-  ctx.lineTo(left.x, left.y);
-  ctx.lineTo(right.x, right.y);
-  ctx.closePath();
-  ctx.fill();
-  if (strokeWidth > 0) {
-    ctx.stroke();
-  }
-
-  if (obj.shape === "rounded") {
-    roundedRectPath(ctx, obj.x, obj.y, obj.w, obj.h, Math.min(obj.w, obj.h) * 0.2);
+  if (obj.shape === "thought") {
+    drawThoughtTail(ctx, obj, base);
+  } else if (obj.shape === "whisper") {
+    drawTailTriangle(ctx, obj, base, 0.62);
+  } else if (obj.shape === "shout") {
+    drawTailTriangle(ctx, obj, base, 1.15);
   } else {
-    ctx.beginPath();
-    ctx.ellipse(
-      obj.x + obj.w / 2,
-      obj.y + obj.h / 2,
-      Math.max(4, obj.w / 2),
-      Math.max(4, obj.h / 2),
-      0,
-      0,
-      Math.PI * 2
-    );
-    ctx.closePath();
+    drawTailTriangle(ctx, obj, base, 1);
   }
+
+  drawBubbleBodyPath(ctx, obj);
   ctx.fill();
   if (strokeWidth > 0) {
     ctx.stroke();
@@ -547,6 +820,7 @@ function drawTextObject(ctx, obj) {
   const strokeWidth = Math.max(0, Number(obj.strokeWidth) || 0);
   if (useBox) {
     ctx.save();
+    ctx.globalAlpha = clamp(safeNumber(obj.opacity, 100), 5, 100) / 100;
     ctx.fillStyle = colorOrFallback(obj.fill, "#ffffff");
     ctx.strokeStyle = colorOrFallback(obj.stroke, "#1b1e24");
     ctx.lineWidth = strokeWidth;
@@ -561,7 +835,8 @@ function drawTextObject(ctx, obj) {
 }
 
 function drawSelection(ctx, obj, scale) {
-  const handleRadius = 8 / scale;
+  const handleRadius = 12 / scale;
+  const tailHandleRadius = 14 / scale;
   ctx.save();
   ctx.strokeStyle = "#0b5fff";
   ctx.lineWidth = 1.5 / scale;
@@ -576,8 +851,16 @@ function drawSelection(ctx, obj, scale) {
   ctx.stroke();
 
   if (obj.kind === "bubble") {
+    const centerX = obj.x + obj.w / 2;
+    const centerY = obj.y + obj.h / 2;
     ctx.beginPath();
-    ctx.arc(obj.tailX, obj.tailY, handleRadius, 0, Math.PI * 2);
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(obj.tailX, obj.tailY);
+    ctx.stroke();
+
+    ctx.fillStyle = "#e6f0ff";
+    ctx.beginPath();
+    ctx.arc(obj.tailX, obj.tailY, tailHandleRadius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }
@@ -622,14 +905,25 @@ function draw() {
 }
 
 function pointInObject(point, obj) {
-  if (obj.kind === "bubble" && obj.shape === "ellipse") {
-    const cx = obj.x + obj.w / 2;
-    const cy = obj.y + obj.h / 2;
-    const rx = Math.max(2, obj.w / 2);
-    const ry = Math.max(2, obj.h / 2);
-    const nx = (point.x - cx) / rx;
-    const ny = (point.y - cy) / ry;
-    return nx * nx + ny * ny <= 1;
+  if (obj.kind === "bubble") {
+    if (obj.shape === "ellipse") {
+      const cx = obj.x + obj.w / 2;
+      const cy = obj.y + obj.h / 2;
+      const rx = Math.max(2, obj.w / 2);
+      const ry = Math.max(2, obj.h / 2);
+      const nx = (point.x - cx) / rx;
+      const ny = (point.y - cy) / ry;
+      return nx * nx + ny * ny <= 1;
+    }
+    if (obj.shape === "cloud" || obj.shape === "thought") {
+      const cx = obj.x + obj.w / 2;
+      const cy = obj.y + obj.h / 2;
+      const rx = Math.max(2, obj.w / 2);
+      const ry = Math.max(2, obj.h / 2);
+      const nx = (point.x - cx) / rx;
+      const ny = (point.y - cy) / ry;
+      return nx * nx + ny * ny <= 1.28;
+    }
   }
   return (
     point.x >= obj.x &&
@@ -640,12 +934,14 @@ function pointInObject(point, obj) {
 }
 
 function handleHit(point, obj) {
-  const r = 12 / getCanvasScale();
+  const scale = getCanvasScale();
+  const resizeRadius = 18 / scale;
+  const tailRadius = 22 / scale;
   const resize = { x: obj.x + obj.w, y: obj.y + obj.h };
-  if (Math.hypot(point.x - resize.x, point.y - resize.y) <= r) {
+  if (Math.hypot(point.x - resize.x, point.y - resize.y) <= resizeRadius) {
     return "resize";
   }
-  if (obj.kind === "bubble" && Math.hypot(point.x - obj.tailX, point.y - obj.tailY) <= r) {
+  if (obj.kind === "bubble" && Math.hypot(point.x - obj.tailX, point.y - obj.tailY) <= tailRadius) {
     return "tail";
   }
   return null;
@@ -666,10 +962,19 @@ function clampObjectBounds(obj) {
   obj.h = Math.max(24, obj.h);
   obj.x = clamp(obj.x, 0, Math.max(0, state.imageWidth - obj.w));
   obj.y = clamp(obj.y, 0, Math.max(0, state.imageHeight - obj.h));
+  obj.opacity = clamp(Math.round(safeNumber(obj.opacity, 100)), 5, 100);
+  obj.textDirection = normalizeTextDirection(obj.textDirection);
   if (obj.kind === "bubble") {
+    obj.shape = normalizeShape(obj.shape);
     obj.tailX = clamp(obj.tailX, 0, state.imageWidth);
     obj.tailY = clamp(obj.tailY, 0, state.imageHeight);
+    obj.tailSize = Math.max(4, safeNumber(obj.tailSize, 16));
   }
+}
+
+function syncOpacityLabel(value) {
+  const opacity = clamp(Math.round(safeNumber(value, 100)), 5, 100);
+  els.propOpacityLabel.textContent = `${opacity}%`;
 }
 
 function syncPropertyPanel() {
@@ -685,7 +990,7 @@ function syncPropertyPanel() {
   els.propPanel.classList.remove("hidden");
 
   els.propKind.value = obj.kind;
-  els.propShape.value = obj.shape || "ellipse";
+  els.propShape.value = normalizeShape(obj.shape || "ellipse");
   els.propText.value = obj.text || "";
   els.propX.value = Math.round(obj.x);
   els.propY.value = Math.round(obj.y);
@@ -693,10 +998,14 @@ function syncPropertyPanel() {
   els.propH.value = Math.round(obj.h);
   els.propTailX.value = Math.round(obj.tailX || obj.x + obj.w / 2);
   els.propTailY.value = Math.round(obj.tailY || obj.y + obj.h + 60);
+  els.propTailSize.value = Math.round(obj.tailSize || 16);
   els.propFontSize.value = Math.round(obj.fontSize || 28);
   els.propPadding.value = Math.round(obj.padding || 0);
   els.propStrokeWidth.value = Math.round(obj.strokeWidth || 0);
   els.propAlign.value = obj.align === "left" ? "left" : "center";
+  els.propDirection.value = normalizeTextDirection(obj.textDirection);
+  els.propOpacity.value = clamp(Math.round(safeNumber(obj.opacity, 100)), 5, 100);
+  syncOpacityLabel(els.propOpacity.value);
   els.propFill.value = colorOrFallback(obj.fill, "#ffffff");
   els.propStroke.value = colorOrFallback(obj.stroke, "#1b1e24");
   els.propTextColor.value = colorOrFallback(obj.textColor, "#111111");
@@ -706,8 +1015,17 @@ function syncPropertyPanel() {
   els.propShapeWrap.classList.toggle("hidden", !isBubble);
   els.bubbleTailFields.classList.toggle("hidden", !isBubble);
   els.propTextBoxField.classList.toggle("hidden", isBubble);
-  els.propTailX.disabled = !isBubble;
-  els.propTailY.disabled = !isBubble;
+  [
+    els.propTailX,
+    els.propTailY,
+    els.propTailSize,
+    els.tailLeftBtn,
+    els.tailUpBtn,
+    els.tailDownBtn,
+    els.tailRightBtn,
+  ].forEach((element) => {
+    element.disabled = !isBubble;
+  });
   state.syncingProps = false;
 }
 
@@ -720,22 +1038,26 @@ function applyPropertyChanges() {
     return;
   }
   obj.text = els.propText.value;
-  obj.x = Number(els.propX.value) || 0;
-  obj.y = Number(els.propY.value) || 0;
-  obj.w = Number(els.propW.value) || 24;
-  obj.h = Number(els.propH.value) || 24;
-  obj.fontSize = Math.max(8, Number(els.propFontSize.value) || 24);
-  obj.padding = Math.max(0, Number(els.propPadding.value) || 0);
-  obj.strokeWidth = Math.max(0, Number(els.propStrokeWidth.value) || 0);
+  obj.x = safeNumber(els.propX.value, 0);
+  obj.y = safeNumber(els.propY.value, 0);
+  obj.w = safeNumber(els.propW.value, 24);
+  obj.h = safeNumber(els.propH.value, 24);
+  obj.fontSize = Math.max(8, safeNumber(els.propFontSize.value, 24));
+  obj.padding = Math.max(0, safeNumber(els.propPadding.value, 0));
+  obj.strokeWidth = Math.max(0, safeNumber(els.propStrokeWidth.value, 0));
   obj.align = els.propAlign.value === "left" ? "left" : "center";
+  obj.textDirection = normalizeTextDirection(els.propDirection.value);
+  obj.opacity = clamp(Math.round(safeNumber(els.propOpacity.value, 100)), 5, 100);
+  syncOpacityLabel(obj.opacity);
   obj.fill = colorOrFallback(els.propFill.value, "#ffffff");
   obj.stroke = colorOrFallback(els.propStroke.value, "#1b1e24");
   obj.textColor = colorOrFallback(els.propTextColor.value, "#111111");
 
   if (obj.kind === "bubble") {
-    obj.shape = els.propShape.value === "rounded" ? "rounded" : "ellipse";
-    obj.tailX = Number(els.propTailX.value) || obj.x + obj.w / 2;
-    obj.tailY = Number(els.propTailY.value) || obj.y + obj.h + 50;
+    obj.shape = normalizeShape(els.propShape.value);
+    obj.tailX = safeNumber(els.propTailX.value, obj.x + obj.w / 2);
+    obj.tailY = safeNumber(els.propTailY.value, obj.y + obj.h + 50);
+    obj.tailSize = Math.max(4, safeNumber(els.propTailSize.value, 16));
   } else {
     obj.useTextBox = Boolean(els.propUseTextBox.checked);
   }
@@ -860,6 +1182,18 @@ function pointerUp(event) {
   }
 }
 
+function nudgeTail(dx, dy) {
+  const obj = currentSelection();
+  if (!obj || obj.kind !== "bubble") {
+    return;
+  }
+  obj.tailX = clamp(obj.tailX + dx, 0, state.imageWidth);
+  obj.tailY = clamp(obj.tailY + dy, 0, state.imageHeight);
+  syncPropertyPanel();
+  draw();
+  pushHistory();
+}
+
 function dataUrlFromFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -873,7 +1207,7 @@ function imageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("画像形式が不正です。PNG/JPEG/WEBP を使用してください。"));
+    img.onerror = () => reject(new Error("画像形式が不正です。PNG/JPEG/WEBPを使ってください。"));
     img.src = dataUrl;
   });
 }
@@ -896,7 +1230,7 @@ async function loadImageFile(file) {
   const type = file.type || "";
   const name = file.name.toLowerCase();
   if (type === "image/heic" || type === "image/heif" || name.endsWith(".heic") || name.endsWith(".heif")) {
-    throw new Error("HEIC/HEIF は未対応です。JPEG/PNG/WEBP を使用してください。");
+    throw new Error("HEIC/HEIFは未対応です。JPEG/PNG/WEBPを使ってください。");
   }
   if (!type.startsWith("image/")) {
     throw new Error("画像ファイルを選択してください。");
@@ -972,10 +1306,13 @@ function bindEvents() {
     els.propH,
     els.propTailX,
     els.propTailY,
+    els.propTailSize,
     els.propFontSize,
     els.propPadding,
     els.propStrokeWidth,
     els.propAlign,
+    els.propDirection,
+    els.propOpacity,
     els.propFill,
     els.propStroke,
     els.propTextColor,
@@ -985,16 +1322,30 @@ function bindEvents() {
     element.addEventListener("change", commitPropertyChanges);
   });
 
+  els.tailLeftBtn.addEventListener("click", () => nudgeTail(-8, 0));
+  els.tailUpBtn.addEventListener("click", () => nudgeTail(0, -8));
+  els.tailDownBtn.addEventListener("click", () => nudgeTail(0, 8));
+  els.tailRightBtn.addEventListener("click", () => nudgeTail(8, 0));
+
   els.canvas.addEventListener("pointerdown", pointerDown);
   window.addEventListener("pointermove", pointerMove, { passive: false });
   window.addEventListener("pointerup", pointerUp);
+  window.addEventListener("pointercancel", pointerUp);
   window.addEventListener("resize", () => {
     updateCanvasMetrics();
     draw();
   });
 }
 
+function requiredElementsPresent() {
+  return Object.values(els).every((element) => element !== null);
+}
+
 function boot() {
+  if (!requiredElementsPresent()) {
+    console.error("manual_editor: required DOM elements are missing");
+    return;
+  }
   bindEvents();
   syncUndoRedoButtons();
   renderLayerList();

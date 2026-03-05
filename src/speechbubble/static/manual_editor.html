@@ -23,7 +23,7 @@
       font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif;
     }
     .page {
-      max-width: 1220px;
+      max-width: 1240px;
       margin: 0 auto;
       padding: 14px;
       display: grid;
@@ -48,7 +48,7 @@
     }
     .layout {
       display: grid;
-      grid-template-columns: minmax(0, 1.6fr) minmax(300px, 0.9fr);
+      grid-template-columns: minmax(0, 1.65fr) minmax(310px, 0.9fr);
       gap: 12px;
     }
     @media (max-width: 980px) {
@@ -67,7 +67,7 @@
       gap: 8px;
       margin-bottom: 10px;
     }
-    button, select, input[type=number], input[type=color], textarea {
+    button, select, input[type=number], input[type=color], input[type=range], textarea {
       font: inherit;
       border: 1px solid var(--line);
       border-radius: 10px;
@@ -89,6 +89,10 @@
       color: #fff;
       border-color: var(--danger);
       background: var(--danger);
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
     .toolbar .grow {
       flex: 1;
@@ -189,6 +193,11 @@
       align-items: center;
       gap: 8px;
       margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .row.tight {
+      gap: 4px;
+      margin-top: 0;
     }
     .row input[type=checkbox] {
       width: auto;
@@ -233,6 +242,21 @@
       padding: 4px 7px;
       font-size: 0.8rem;
     }
+    .opacity-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .opacity-row input[type=range] {
+      flex: 1;
+      width: 100%;
+    }
+    .opacity-row strong {
+      min-width: 40px;
+      text-align: right;
+      font-size: 0.85rem;
+      color: var(--sub);
+    }
     .hidden {
       display: none !important;
     }
@@ -254,22 +278,22 @@
     <section class="hero">
       <h1>Manual Speech Bubble Editor</h1>
       <p>
-        顔認識は使わず、吹き出し・しっぽ・文字を手動で配置するツールです。
-        画像を読み込んで「吹き出し追加 / テキスト追加」から編集してください。
+        イラストを読み込み、吹き出しと文字を手動で配置するエディタです。
+        しっぽ位置や透明度、縦書き/横書き、複数形状を調整して自然な漫画レイアウトを作れます。
       </p>
     </section>
 
     <section class="layout">
       <div class="card">
         <div class="toolbar">
-          <button id="loadImageBtn" class="primary">画像を読み込む</button>
-          <button id="addBubbleBtn">吹き出し追加</button>
-          <button id="addTextBtn">テキスト追加</button>
-          <button id="duplicateBtn">複製</button>
-          <button id="deleteBtn" class="danger">削除</button>
-          <button id="undoBtn">Undo</button>
-          <button id="redoBtn">Redo</button>
-          <button id="fitBtn">フィット</button>
+          <button type="button" id="loadImageBtn" class="primary">画像を読み込む</button>
+          <button type="button" id="addBubbleBtn">吹き出し追加</button>
+          <button type="button" id="addTextBtn">テキスト追加</button>
+          <button type="button" id="duplicateBtn">複製</button>
+          <button type="button" id="deleteBtn" class="danger">削除</button>
+          <button type="button" id="undoBtn">Undo</button>
+          <button type="button" id="redoBtn">Redo</button>
+          <button type="button" id="fitBtn">フィット</button>
           <div class="zoom-wrap grow">
             <span>Zoom</span>
             <input id="zoomRange" type="range" min="40" max="260" value="100">
@@ -278,9 +302,9 @@
         </div>
 
         <div class="toolbar">
-          <button id="saveProjectBtn">プロジェクト保存(JSON)</button>
-          <button id="loadProjectBtn">プロジェクト読込(JSON)</button>
-          <button id="exportPngBtn" class="primary">PNGを書き出し</button>
+          <button type="button" id="saveProjectBtn">プロジェクト保存(JSON)</button>
+          <button type="button" id="loadProjectBtn">プロジェクト読込(JSON)</button>
+          <button type="button" id="exportPngBtn" class="primary">PNGを書き出す</button>
         </div>
 
         <div class="canvas-viewport" id="canvasViewport">
@@ -290,7 +314,7 @@
         <div id="statusBar" class="status">準備完了</div>
 
         <div class="hint">
-          操作: オブジェクトをドラッグ移動 / 右下ハンドルでサイズ変更 / 吹き出し先端ハンドルでしっぽ先調整。
+          操作: オブジェクトをドラッグ移動 / 右下ハンドルでサイズ変更 / 吹き出しはしっぽハンドルでも調整。
         </div>
       </div>
 
@@ -305,10 +329,14 @@
               <input id="propKind" type="text" readonly>
             </div>
             <div class="field" id="propShapeWrap">
-              <label>図形</label>
+              <label>形状</label>
               <select id="propShape">
                 <option value="ellipse">ellipse</option>
                 <option value="rounded">rounded</option>
+                <option value="cloud">cloud</option>
+                <option value="shout">shout</option>
+                <option value="thought">thought</option>
+                <option value="whisper">whisper</option>
               </select>
             </div>
           </div>
@@ -330,30 +358,54 @@
           <div id="bubbleTailFields" class="field-grid" style="margin-top:8px;">
             <div class="field"><label>Tail X</label><input id="propTailX" type="number"></div>
             <div class="field"><label>Tail Y</label><input id="propTailY" type="number"></div>
+            <div class="field"><label>Tail Size</label><input id="propTailSize" type="number" min="4"></div>
+            <div class="field">
+              <label>Tail Nudge</label>
+              <div class="row tight">
+                <button type="button" id="tailLeftBtn">←</button>
+                <button type="button" id="tailUpBtn">↑</button>
+                <button type="button" id="tailDownBtn">↓</button>
+                <button type="button" id="tailRightBtn">→</button>
+              </div>
+            </div>
           </div>
 
           <div class="field-grid" style="margin-top:8px;">
-            <div class="field"><label>文字サイズ</label><input id="propFontSize" type="number" min="8"></div>
+            <div class="field"><label>フォントサイズ</label><input id="propFontSize" type="number" min="8"></div>
             <div class="field"><label>余白</label><input id="propPadding" type="number" min="0"></div>
-            <div class="field"><label>線幅</label><input id="propStrokeWidth" type="number" min="0"></div>
+            <div class="field"><label>線の太さ</label><input id="propStrokeWidth" type="number" min="0"></div>
             <div class="field">
-              <label>文字寄せ</label>
+              <label>文字揃え</label>
               <select id="propAlign">
                 <option value="center">center</option>
                 <option value="left">left</option>
               </select>
             </div>
+            <div class="field">
+              <label>文字方向</label>
+              <select id="propDirection">
+                <option value="horizontal">horizontal</option>
+                <option value="vertical">vertical</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>透明度</label>
+              <div class="opacity-row">
+                <input id="propOpacity" type="range" min="5" max="100" value="100">
+                <strong id="propOpacityLabel">100%</strong>
+              </div>
+            </div>
           </div>
 
           <div class="field-grid" style="margin-top:8px;">
             <div class="field"><label>塗り</label><input id="propFill" type="color"></div>
-            <div class="field"><label>枠線</label><input id="propStroke" type="color"></div>
+            <div class="field"><label>線色</label><input id="propStroke" type="color"></div>
             <div class="field"><label>文字色</label><input id="propTextColor" type="color"></div>
             <div class="field hidden" id="propTextBoxField">
               <label>テキスト背景</label>
               <div class="row">
                 <input id="propUseTextBox" type="checkbox">
-                <span>背景あり</span>
+                <span>有効</span>
               </div>
             </div>
           </div>
