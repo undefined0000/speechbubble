@@ -10,7 +10,7 @@ def test_root_returns_editor_html() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
-    assert "Manual Speech Bubble Editor" in response.text
+    assert "吹き出し手動エディタ" in response.text
     assert "/assets/manual_editor.js" in response.text
     assert "templateSearchInput" in response.text
     assert "templateGrid" in response.text

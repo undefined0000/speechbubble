@@ -189,6 +189,21 @@ function normalizeRenderMode(value) {
   return RENDER_MODE_SET.has(value) ? value : "procedural";
 }
 
+function kindLabel(kind) {
+  return kind === "bubble" ? "吹き出し" : "テキスト";
+}
+
+function templateCategoryLabel(category) {
+  const labels = {
+    normal: "通常",
+    shout: "叫び",
+    thought: "モノローグ",
+    whisper: "ささやき",
+    narration: "地の文",
+  };
+  return labels[category] || String(category || "未分類");
+}
+
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -435,8 +450,8 @@ function renderTemplateGrid() {
     const empty = document.createElement("div");
     empty.className = "template-meta";
     empty.textContent = state.templateLoadFailed
-      ? "Template catalog unavailable. Procedural mode only."
-      : "Loading template catalog...";
+      ? "テンプレートカタログを読み込めません。手描きモードのみ利用できます。"
+      : "テンプレートカタログを読み込み中...";
     els.templateGrid.appendChild(empty);
     return;
   }
@@ -456,7 +471,7 @@ function renderTemplateGrid() {
   if (!filtered.length) {
     const empty = document.createElement("div");
     empty.className = "template-meta";
-    empty.textContent = "No template matches current filter.";
+    empty.textContent = "条件に一致するテンプレートがありません。";
     els.templateGrid.appendChild(empty);
     return;
   }
@@ -476,7 +491,7 @@ function renderTemplateGrid() {
         <path d="${tpl.bodyPath}" fill="#fff" stroke="#1b1e24" stroke-width="${item.variant.lineWidth}" stroke-linejoin="round" stroke-linecap="round"></path>
       </svg>
       <strong>${tpl.id}</strong>
-      <span class="template-meta">${tpl.category} / lw ${item.variant.lineWidth}</span>
+      <span class="template-meta">${templateCategoryLabel(tpl.category)} / 線幅 ${item.variant.lineWidth}</span>
     `;
     card.addEventListener("click", () => {
       state.selectedTemplateCatalogId = item.catalogId;
@@ -492,13 +507,13 @@ async function loadTemplateManifest() {
   try {
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) {
-      throw new Error(`manifest fetch failed (${response.status})`);
+      throw new Error(`manifest取得に失敗しました (${response.status})`);
     }
     const payload = await response.json();
     const templates = Array.isArray(payload.templates) ? payload.templates : [];
     const normalized = templates.map(validateTemplate).filter(Boolean);
     if (!normalized.length) {
-      throw new Error("manifest is empty");
+      throw new Error("manifest が空です");
     }
     state.templateManifest = payload;
     state.templateBases = normalized;
@@ -515,7 +530,7 @@ async function loadTemplateManifest() {
     syncTemplateSelectionUi();
     syncPropertyPanel();
     draw();
-    status(`Template catalog loaded: ${state.templateCatalog.length} variants.`, "ok");
+    status(`テンプレートカタログを読み込みました: ${state.templateCatalog.length}件`, "ok");
   } catch (error) {
     state.templateManifest = null;
     state.templateBases = [];
@@ -529,7 +544,7 @@ async function loadTemplateManifest() {
     syncPropertyPanel();
     draw();
     renderTemplateGrid();
-    status(`Template catalog unavailable. Procedural mode only. ${String(error.message || error)}`, "warn");
+    status(`テンプレートカタログを利用できません。手描きモードのみ利用可能です。${String(error.message || error)}`, "warn");
   }
 }
 
@@ -741,13 +756,13 @@ function setBubbleRenderMode(obj, mode) {
   if (nextMode === "template") {
     if (state.templateLoadFailed || !hasTemplateCatalog()) {
       obj.renderMode = "procedural";
-      status("Template catalog unavailable. Using procedural mode.", "warn");
+      status("テンプレートカタログを利用できないため、手描きモードに切り替えました。", "warn");
       return;
     }
     const chosen = pickTemplateCatalogForBubble(obj);
     if (!chosen || !applyCatalogItemToBubble(obj, chosen)) {
       obj.renderMode = "procedural";
-      status("No template available. Using procedural mode.", "warn");
+      status("利用可能なテンプレートがないため、手描きモードに切り替えました。", "warn");
       return;
     }
     state.selectedTemplateCatalogId = chosen.catalogId;
@@ -803,7 +818,7 @@ function formatTemplateIdForPanel(obj) {
   if (obj.renderMode !== "template") {
     return "-";
   }
-  return obj.templateId || "(select from panel)";
+  return obj.templateId || "（右パネルで選択）";
 }
 
 function shouldShowShapeSelector(obj) {
@@ -852,28 +867,17 @@ function makeBubble() {
   const h = Math.max(110, state.imageHeight * 0.16);
   const x = clamp(state.imageWidth * 0.3, 0, state.imageWidth - w);
   const y = clamp(state.imageHeight * 0.2, 0, state.imageHeight - h);
-  const autoTemplate = pickAutoTemplateCatalog();
-  const template = autoTemplate ? templateById(autoTemplate.templateId) : null;
-  if (template) {
-    rememberTemplateUsage(template.id);
-  }
   return {
     id: state.nextId++,
     kind: "bubble",
-    renderMode: template ? "template" : "procedural",
-    templateId: template ? template.id : null,
-    templateVariant: template
-      ? {
-          roughness: autoTemplate.variant.roughness,
-          wobble: autoTemplate.variant.wobble,
-          seed: autoTemplate.variant.seed,
-        }
-      : null,
+    renderMode: "procedural",
+    templateId: null,
+    templateVariant: null,
     tailAnchorId: null,
-    tailSnap: Boolean(template),
+    tailSnap: false,
     tailVisible: true,
-    shape: template ? mapTemplateCategoryToShape(template.category) : "ellipse",
-    text: "dialogue",
+    shape: "ellipse",
+    text: "セリフ",
     x,
     y,
     w,
@@ -881,9 +885,9 @@ function makeBubble() {
     tailX: x + w * 0.5,
     tailY: y + h + Math.min(110, state.imageHeight * 0.12),
     tailSize: Math.max(10, Math.round(Math.min(w, h) * 0.12)),
-    fill: template ? template.defaultStyle.fill : "#ffffff",
-    stroke: template ? template.defaultStyle.stroke : "#1b1e24",
-    strokeWidth: template ? autoTemplate.variant.lineWidth : 4,
+    fill: "#ffffff",
+    stroke: "#1b1e24",
+    strokeWidth: 0,
     textColor: "#111111",
     fontSize: Math.max(24, Math.round(Math.min(w, h) * 0.24)),
     fontFamily: "auto",
@@ -902,7 +906,7 @@ function makeText() {
   return {
     id: state.nextId++,
     kind: "text",
-    text: "text",
+    text: "テキスト",
     x,
     y,
     w,
@@ -947,7 +951,7 @@ function applyCatalogItemToBubble(obj, item) {
 function applySelectedTemplateToCurrentBubble() {
   const item = selectedCatalogItem();
   if (!item) {
-    status("Select a template card first.", "err");
+    status("先にテンプレートカードを選択してください。", "err");
     return;
   }
   let obj = currentSelection();
@@ -956,7 +960,7 @@ function applySelectedTemplateToCurrentBubble() {
     obj = currentSelection();
   }
   if (!obj || obj.kind !== "bubble") {
-    status("Select a bubble object first.", "err");
+    status("先に吹き出しオブジェクトを選択してください。", "err");
     return;
   }
   if (applyCatalogItemToBubble(obj, item)) {
@@ -966,9 +970,9 @@ function applySelectedTemplateToCurrentBubble() {
     syncTemplateSelectionUi();
     draw();
     pushHistory();
-    status(`Template applied: ${item.templateId}`, "ok");
+    status(`テンプレートを適用しました: ${item.templateId}`, "ok");
   } else {
-    status("Template not found in manifest.", "err");
+    status("manifest内にテンプレートが見つかりません。", "err");
   }
 }
 
@@ -987,21 +991,21 @@ function regenerateVariant() {
     syncPropertyPanel();
     syncTemplateSelectionUi();
     pushHistory();
-    status("Variant regenerated for selected bubble.", "ok");
+    status("選択中の吹き出しのバリエーションを再生成しました。", "ok");
     return;
   }
   if (item) {
     item.variant = randomVariant(item.templateId);
     renderTemplateGrid();
-    status("Variant regenerated for selected template card.", "ok");
+    status("選択中のテンプレートカードのバリエーションを再生成しました。", "ok");
     return;
   }
-  status("Select a template card or template bubble.", "err");
+  status("テンプレートカードまたはテンプレート吹き出しを選択してください。", "err");
 }
 
 function addObject(kind) {
   if (!state.image) {
-    status("Load an image first.", "err");
+    status("先に画像を読み込んでください。", "err");
     return;
   }
   const obj = kind === "bubble" ? makeBubble() : makeText();
@@ -1012,7 +1016,7 @@ function addObject(kind) {
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status(kind === "bubble" ? "Bubble added." : "Text object added.", "ok");
+  status(kind === "bubble" ? "吹き出しを追加しました。" : "テキストを追加しました。", "ok");
 }
 
 function deleteSelected() {
@@ -1026,7 +1030,7 @@ function deleteSelected() {
   renderLayerList();
   renderTemplateGrid();
   draw();
-  status("Selection deleted.", "ok");
+  status("選択オブジェクトを削除しました。", "ok");
 }
 
 function duplicateSelected() {
@@ -1049,7 +1053,7 @@ function duplicateSelected() {
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status("Duplicated.", "ok");
+  status("複製しました。", "ok");
 }
 function moveLayer(id, direction) {
   const idx = state.objects.findIndex((obj) => obj.id === id);
@@ -1083,7 +1087,7 @@ function downloadBlob(blob, filename) {
 
 function saveProject() {
   if (!state.image || !state.imageDataUrl) {
-    status("Load an image before saving.", "err");
+    status("保存する前に画像を読み込んでください。", "err");
     return;
   }
   const payload = {
@@ -1097,17 +1101,17 @@ function saveProject() {
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   downloadBlob(blob, "speechbubble-project.json");
-  status("Project saved.", "ok");
+  status("プロジェクトを保存しました。", "ok");
 }
 
 async function loadProjectFile(file) {
   const text = await file.text();
   const payload = JSON.parse(text);
   if (!payload || typeof payload !== "object") {
-    throw new Error("Invalid project json.");
+    throw new Error("不正なプロジェクトJSONです。");
   }
   if (!payload.imageDataUrl || !Array.isArray(payload.objects)) {
-    throw new Error("Missing fields: imageDataUrl / objects");
+    throw new Error("必須項目が不足しています: imageDataUrl / objects");
   }
   await setBackgroundFromDataUrl(payload.imageDataUrl);
   state.objects = payload.objects.map((obj) => normalizeObject(obj));
@@ -1122,12 +1126,12 @@ async function loadProjectFile(file) {
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status(`Project loaded (v${payload.version || 1}).`, "ok");
+  status(`プロジェクトを読み込みました (v${payload.version || 1})。`, "ok");
 }
 
 function exportPng() {
   if (!state.image) {
-    status("Load an image first.", "err");
+    status("先に画像を読み込んでください。", "err");
     return;
   }
   const off = document.createElement("canvas");
@@ -1135,17 +1139,17 @@ function exportPng() {
   off.height = state.imageHeight;
   const ctx = off.getContext("2d");
   if (!ctx) {
-    status("Cannot initialize canvas context.", "err");
+    status("キャンバスの初期化に失敗しました。", "err");
     return;
   }
   renderScene(ctx, 1, false);
   off.toBlob((blob) => {
     if (!blob) {
-      status("PNG export failed.", "err");
+      status("PNG書き出しに失敗しました。", "err");
       return;
     }
     downloadBlob(blob, "speechbubble-export.png");
-    status("PNG exported.", "ok");
+    status("PNGを書き出しました。", "ok");
   }, "image/png");
 }
 
@@ -1902,7 +1906,7 @@ function syncPropertyPanel() {
   const isTemplateBubble = isBubble && obj.renderMode === "template";
   const isTailVisible = isBubble && obj.tailVisible !== false;
 
-  els.propKind.value = obj.kind;
+  els.propKind.value = kindLabel(obj.kind);
   els.propRenderMode.value = isBubble ? normalizeRenderMode(obj.renderMode) : "procedural";
   els.propTemplateId.value = formatTemplateIdForPanel(obj);
   els.propShape.value = normalizeShape(obj.shape || "ellipse");
@@ -1929,7 +1933,7 @@ function syncPropertyPanel() {
   els.propTailVisible.checked = isTailVisible;
   els.propTailSnap.checked = isTemplateBubble ? obj.tailSnap === true : false;
   if (els.toggleTailBtn) {
-    els.toggleTailBtn.textContent = isTailVisible ? "Hide Tail" : "Show Tail";
+    els.toggleTailBtn.textContent = isTailVisible ? "しっぽを消す" : "しっぽを表示";
   }
 
   els.propRenderMode.disabled = !isBubble || state.templateLoadFailed;
@@ -2057,10 +2061,10 @@ function renderLayerList() {
     li.className = "layer-item" + (obj.id === state.selectedId ? " active" : "");
     const topIndex = state.objects.length - 1 - state.objects.indexOf(obj);
     li.innerHTML = `
-      <button class="layer-name" type="button">${topIndex + 1}. ${obj.kind} #${obj.id}</button>
+      <button class="layer-name" type="button">${topIndex + 1}. ${kindLabel(obj.kind)} #${obj.id}</button>
       <div class="layer-actions">
-        <button type="button" data-dir="1">Up</button>
-        <button type="button" data-dir="-1">Down</button>
+        <button type="button" data-dir="1">上へ</button>
+        <button type="button" data-dir="-1">下へ</button>
       </div>
     `;
     li.querySelector(".layer-name").addEventListener("click", () => {
@@ -2186,7 +2190,7 @@ function dataUrlFromFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Failed to read image file."));
+    reader.onerror = () => reject(new Error("画像ファイルを読み込めませんでした。"));
     reader.readAsDataURL(file);
   });
 }
@@ -2195,7 +2199,7 @@ function imageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Invalid image format. Use PNG/JPEG/WEBP."));
+    img.onerror = () => reject(new Error("画像形式が不正です。PNG/JPEG/WEBP を使用してください。"));
     img.src = dataUrl;
   });
 }
@@ -2218,10 +2222,10 @@ async function loadImageFile(file) {
   const type = file.type || "";
   const name = file.name.toLowerCase();
   if (type === "image/heic" || type === "image/heif" || name.endsWith(".heic") || name.endsWith(".heif")) {
-    throw new Error("HEIC/HEIF is not supported. Use JPEG/PNG/WEBP.");
+    throw new Error("HEIC/HEIF は未対応です。JPEG/PNG/WEBP を使用してください。");
   }
   if (!type.startsWith("image/")) {
-    throw new Error("Please select an image file.");
+    throw new Error("画像ファイルを選択してください。");
   }
   const dataUrl = await dataUrlFromFile(file);
   await setBackgroundFromDataUrl(dataUrl);
@@ -2233,7 +2237,7 @@ async function loadImageFile(file) {
   pushHistory();
   syncPropertyPanel();
   renderLayerList();
-  status(`Image loaded: ${state.imageWidth}x${state.imageHeight}`, "ok");
+  status(`画像を読み込みました: ${state.imageWidth}x${state.imageHeight}`, "ok");
 }
 
 function bindEvents() {
@@ -2349,7 +2353,7 @@ function boot() {
   renderTemplateGrid();
   syncPropertyPanel();
   loadTemplateManifest();
-  status("Load an image to start editing.", "ok");
+  status("画像を読み込んで編集を開始してください。", "ok");
 }
 
 boot();

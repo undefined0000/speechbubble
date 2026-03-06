@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SpeechBubble Manual Editor</title>
+  <title>吹き出し手動エディタ</title>
   <style>
     :root {
       --bg: #ecf1fb;
@@ -403,127 +403,127 @@
 <body>
   <div class="page">
     <section class="hero">
-      <h1>Manual Speech Bubble Editor (CC0 Templates + Rough.js)</h1>
+      <h1>吹き出し手動エディタ（CC0テンプレート + Rough.js）</h1>
       <p>
-        Use this editor to place speech bubbles manually with template and procedural modes.
-        Supports tail adjustment, opacity, horizontal/vertical text, and PNG export.
+        テンプレート方式と手描き方式を切り替えながら、吹き出しを手動配置できます。
+        しっぽ調整・透明度・縦書き/横書き・PNG書き出しに対応しています。
       </p>
     </section>
 
     <section class="layout">
       <div class="card">
         <div class="toolbar">
-          <button type="button" id="loadImageBtn" class="primary">Load Image</button>
-          <button type="button" id="addBubbleBtn">Add Bubble</button>
-          <button type="button" id="addTextBtn">Add Text</button>
-          <button type="button" id="duplicateBtn">Duplicate</button>
-          <button type="button" id="deleteBtn" class="danger">Delete</button>
-          <button type="button" id="undoBtn">Undo</button>
-          <button type="button" id="redoBtn">Redo</button>
-          <button type="button" id="fitBtn">Fit</button>
+          <button type="button" id="loadImageBtn" class="primary">画像を読み込む</button>
+          <button type="button" id="addBubbleBtn">吹き出し追加</button>
+          <button type="button" id="addTextBtn">テキスト追加</button>
+          <button type="button" id="duplicateBtn">複製</button>
+          <button type="button" id="deleteBtn" class="danger">削除</button>
+          <button type="button" id="undoBtn">元に戻す</button>
+          <button type="button" id="redoBtn">やり直し</button>
+          <button type="button" id="fitBtn">全体表示</button>
           <div class="zoom-wrap grow">
-            <span>Zoom</span>
+            <span>拡大率</span>
             <input id="zoomRange" type="range" min="40" max="260" value="100">
             <strong id="zoomLabel">100%</strong>
           </div>
         </div>
 
         <div class="toolbar">
-          <button type="button" id="saveProjectBtn">Save Project (JSON)</button>
-          <button type="button" id="loadProjectBtn">Load Project (JSON)</button>
-          <button type="button" id="exportPngBtn" class="primary">Export PNG</button>
+          <button type="button" id="saveProjectBtn">プロジェクト保存（JSON）</button>
+          <button type="button" id="loadProjectBtn">プロジェクト読込（JSON）</button>
+          <button type="button" id="exportPngBtn" class="primary">PNGを書き出し</button>
         </div>
 
         <div class="canvas-viewport" id="canvasViewport">
           <canvas id="editorCanvas"></canvas>
-          <div id="emptyState" class="empty">Load an image and start placing bubbles.</div>
+          <div id="emptyState" class="empty">画像を読み込むと編集を開始できます。</div>
         </div>
 
-        <div id="statusBar" class="status">Ready.</div>
+        <div id="statusBar" class="status">準備完了</div>
         <div class="hint">
-          Drag to move, drag bottom-right to resize, drag tail handle to adjust tail,
-          and use vertical text for Japanese manga layout.
+          操作: ドラッグで移動 / 右下ハンドルでサイズ変更 / しっぽハンドルで先端調整。
+          しっぽを消すときは「しっぽを消す」を使ってください。
         </div>
       </div>
 
       <aside class="card panel">
-        <h2>Template Library</h2>
-        <p>Select category and search by ID. Pick a card, then apply it to the current bubble.</p>
+        <h2>テンプレートライブラリ</h2>
+        <p>カテゴリとIDで絞り込みできます。カードを選んで現在の吹き出しへ適用してください。</p>
 
         <div class="template-tools">
-          <input id="templateSearchInput" type="text" placeholder="search id/category">
+          <input id="templateSearchInput" type="text" placeholder="ID/カテゴリで検索">
           <select id="templateCategorySelect">
-            <option value="all">all</option>
-            <option value="normal">normal</option>
-            <option value="shout">shout</option>
-            <option value="thought">thought</option>
-            <option value="whisper">whisper</option>
-            <option value="narration">narration</option>
+            <option value="all">すべて</option>
+            <option value="normal">通常</option>
+            <option value="shout">叫び</option>
+            <option value="thought">モノローグ</option>
+            <option value="whisper">ささやき</option>
+            <option value="narration">地の文</option>
           </select>
         </div>
 
         <div class="row">
-          <button type="button" id="variantRegenerateBtn">Regenerate Variant</button>
-          <button type="button" id="applyTemplateBtn">Apply Template</button>
+          <button type="button" id="variantRegenerateBtn">バリエーション再生成</button>
+          <button type="button" id="applyTemplateBtn">テンプレート適用</button>
         </div>
 
         <div id="templateGrid" class="template-grid"></div>
 
         <hr class="split">
 
-        <h2>Selected Object</h2>
-        <p id="noSelectionText">No object selected. Click an object on canvas or in the layer list.</p>
+        <h2>選択中オブジェクト</h2>
+        <p id="noSelectionText">未選択です。キャンバスまたはレイヤー一覧でオブジェクトを選択してください。</p>
 
         <div id="propPanel" class="hidden">
           <div class="field-grid">
             <div class="field">
-              <label>Type</label>
+              <label>タイプ</label>
               <input id="propKind" type="text" readonly>
             </div>
             <div class="field">
-              <label>Render Mode</label>
+              <label>描画モード</label>
               <select id="propRenderMode">
-                <option value="procedural">procedural</option>
-                <option value="template">template</option>
+                <option value="procedural">手描き</option>
+                <option value="template">テンプレート</option>
               </select>
             </div>
           </div>
 
           <div class="field-grid single" style="margin-top: 8px;">
             <div class="field">
-              <label>Template ID</label>
+              <label>テンプレートID</label>
               <input id="propTemplateId" type="text" readonly>
             </div>
           </div>
 
           <div class="field-grid" style="margin-top: 8px;">
             <div class="field" id="propShapeWrap">
-              <label>Procedural Shape</label>
+              <label>手描き形状</label>
               <select id="propShape">
-                <option value="ellipse">ellipse</option>
-                <option value="rounded">rounded</option>
-                <option value="cloud">cloud</option>
-                <option value="shout">shout</option>
-                <option value="thought">thought</option>
-                <option value="whisper">whisper</option>
+                <option value="ellipse">楕円</option>
+                <option value="rounded">角丸</option>
+                <option value="cloud">雲形</option>
+                <option value="shout">叫び</option>
+                <option value="thought">モノローグ</option>
+                <option value="whisper">ささやき</option>
               </select>
             </div>
             <div class="field">
-              <label>Tail</label>
+              <label>しっぽ</label>
               <div class="row" style="margin-top: 2px;">
                 <input id="propTailVisible" type="checkbox">
-                <span>Visible</span>
+                <span>表示</span>
               </div>
               <div class="row" style="margin-top: 2px;">
                 <input id="propTailSnap" type="checkbox">
-                <span>Snap</span>
+                <span>吸着</span>
               </div>
             </div>
           </div>
 
           <div class="field-grid single" style="margin-top: 8px;">
             <div class="field">
-              <label>Text</label>
+              <label>テキスト</label>
               <textarea id="propText"></textarea>
             </div>
           </div>
@@ -531,73 +531,73 @@
           <div class="field-grid" style="margin-top: 8px;">
             <div class="field"><label>X</label><input id="propX" type="number"></div>
             <div class="field"><label>Y</label><input id="propY" type="number"></div>
-            <div class="field"><label>Width</label><input id="propW" type="number" min="20"></div>
-            <div class="field"><label>Height</label><input id="propH" type="number" min="20"></div>
+            <div class="field"><label>幅</label><input id="propW" type="number" min="20"></div>
+            <div class="field"><label>高さ</label><input id="propH" type="number" min="20"></div>
           </div>
 
           <div id="bubbleTailFields" class="field-grid" style="margin-top: 8px;">
-            <div class="field"><label>Tail X</label><input id="propTailX" type="number"></div>
-            <div class="field"><label>Tail Y</label><input id="propTailY" type="number"></div>
-            <div class="field"><label>Tail Size</label><input id="propTailSize" type="number" min="4"></div>
+            <div class="field"><label>しっぽX</label><input id="propTailX" type="number"></div>
+            <div class="field"><label>しっぽY</label><input id="propTailY" type="number"></div>
+            <div class="field"><label>しっぽ太さ</label><input id="propTailSize" type="number" min="4"></div>
             <div class="field">
-              <label>Tail Quick</label>
+              <label>しっぽ切替</label>
               <div class="row tight" style="margin-bottom: 4px;">
-                <button type="button" id="toggleTailBtn">Toggle Tail</button>
+                <button type="button" id="toggleTailBtn">しっぽを消す</button>
               </div>
-              <label>Tail Nudge</label>
+              <label>しっぽ微調整</label>
               <div class="row tight">
-                <button type="button" id="tailLeftBtn">Left</button>
-                <button type="button" id="tailUpBtn">Up</button>
-                <button type="button" id="tailDownBtn">Down</button>
-                <button type="button" id="tailRightBtn">Right</button>
+                <button type="button" id="tailLeftBtn">左</button>
+                <button type="button" id="tailUpBtn">上</button>
+                <button type="button" id="tailDownBtn">下</button>
+                <button type="button" id="tailRightBtn">右</button>
               </div>
             </div>
           </div>
 
           <div class="field-grid" style="margin-top: 8px;">
             <div class="field">
-              <label>Font Family</label>
+              <label>フォント</label>
               <select id="propFontFamily">
-                <option value="auto">auto</option>
-                <option value="manga-dialog">manga-dialog</option>
-                <option value="manga-narration">manga-narration</option>
-                <option value="manga-shout">manga-shout</option>
-                <option value="manga-soft">manga-soft</option>
-                <option value="manga-hand">manga-hand</option>
-                <option value="retro-pop">retro-pop</option>
-                <option value="seinen-cool">seinen-cool</option>
-                <option value="shojo-soft">shojo-soft</option>
-                <option value="neon-impact">neon-impact</option>
-                <option value="brush">brush</option>
-                <option value="typewriter">typewriter</option>
-                <option value="jp-gothic">jp-gothic</option>
-                <option value="jp-mincho">jp-mincho</option>
-                <option value="classic-serif">classic-serif</option>
-                <option value="classic-sans">classic-sans</option>
-                <option value="rounded">rounded</option>
-                <option value="comic">comic</option>
-                <option value="mono">mono</option>
+                <option value="auto">自動</option>
+                <option value="manga-dialog">漫画会話</option>
+                <option value="manga-narration">漫画地の文</option>
+                <option value="manga-shout">漫画叫び</option>
+                <option value="manga-soft">漫画ソフト</option>
+                <option value="manga-hand">手書き風</option>
+                <option value="retro-pop">レトロポップ</option>
+                <option value="seinen-cool">青年誌クール</option>
+                <option value="shojo-soft">少女誌ソフト</option>
+                <option value="neon-impact">ネオン強調</option>
+                <option value="brush">筆文字</option>
+                <option value="typewriter">タイプライター</option>
+                <option value="jp-gothic">和文ゴシック</option>
+                <option value="jp-mincho">和文明朝</option>
+                <option value="classic-serif">クラシック明朝</option>
+                <option value="classic-sans">クラシックゴシック</option>
+                <option value="rounded">丸ゴシック</option>
+                <option value="comic">コミック</option>
+                <option value="mono">等幅</option>
               </select>
             </div>
-            <div class="field"><label>Font Size</label><input id="propFontSize" type="number" min="8"></div>
-            <div class="field"><label>Padding</label><input id="propPadding" type="number" min="0"></div>
-            <div class="field"><label>Stroke Width</label><input id="propStrokeWidth" type="number" min="0"></div>
+            <div class="field"><label>文字サイズ</label><input id="propFontSize" type="number" min="8"></div>
+            <div class="field"><label>余白</label><input id="propPadding" type="number" min="0"></div>
+            <div class="field"><label>線幅</label><input id="propStrokeWidth" type="number" min="0"></div>
             <div class="field">
-              <label>Align</label>
+              <label>文字寄せ</label>
               <select id="propAlign">
-                <option value="center">center</option>
-                <option value="left">left</option>
+                <option value="center">中央</option>
+                <option value="left">左寄せ</option>
               </select>
             </div>
             <div class="field">
-              <label>Text Direction</label>
+              <label>文字方向</label>
               <select id="propDirection">
-                <option value="horizontal">horizontal</option>
-                <option value="vertical">vertical</option>
+                <option value="horizontal">横書き</option>
+                <option value="vertical">縦書き</option>
               </select>
             </div>
             <div class="field">
-              <label>Opacity</label>
+              <label>透明度</label>
               <div class="opacity-row">
                 <input id="propOpacity" type="range" min="5" max="100" value="100">
                 <strong id="propOpacityLabel">100%</strong>
@@ -606,14 +606,14 @@
           </div>
 
           <div class="field-grid" style="margin-top: 8px;">
-            <div class="field"><label>Fill</label><input id="propFill" type="color"></div>
-            <div class="field"><label>Stroke</label><input id="propStroke" type="color"></div>
-            <div class="field"><label>Text Color</label><input id="propTextColor" type="color"></div>
+            <div class="field"><label>塗り</label><input id="propFill" type="color"></div>
+            <div class="field"><label>枠線</label><input id="propStroke" type="color"></div>
+            <div class="field"><label>文字色</label><input id="propTextColor" type="color"></div>
             <div class="field hidden" id="propTextBoxField">
-              <label>Text Box Frame</label>
+              <label>テキスト背景</label>
               <div class="row" style="margin-top: 2px;">
                 <input id="propUseTextBox" type="checkbox">
-                <span>Enable</span>
+                <span>有効</span>
               </div>
             </div>
           </div>
@@ -621,7 +621,7 @@
 
         <hr class="split">
 
-        <h2>Layers</h2>
+        <h2>レイヤー</h2>
         <ul id="layerList" class="layer-list"></ul>
       </aside>
     </section>
