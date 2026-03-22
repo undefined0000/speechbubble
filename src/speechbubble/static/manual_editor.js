@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = String(window.__APP_VERSION__ || "3.0.0");
+const APP_VERSION = String(window.__APP_VERSION__ || "3.1.0");
 
 const els = {
   canvas: document.getElementById("editorCanvas"),
@@ -37,7 +37,9 @@ const els = {
   propTailSnap: document.getElementById("propTailSnap"),
   propShapeWrap: document.getElementById("propShapeWrap"),
   propShape: document.getElementById("propShape"),
+  propTextField: document.getElementById("propTextField"),
   propText: document.getElementById("propText"),
+  textTypographyFields: document.getElementById("textTypographyFields"),
   propX: document.getElementById("propX"),
   propY: document.getElementById("propY"),
   propW: document.getElementById("propW"),
@@ -105,6 +107,9 @@ const LINE_WIDTH_LEVELS = [3, 4, 5];
 const ROUGHNESS_LEVELS = [0.72, 1.2];
 const WOBBLE_LEVELS = [0.85, 1.35];
 const RECENT_TEMPLATE_LIMIT = 5;
+const MIN_ZOOM_PERCENT = 1;
+const MAX_ZOOM_PERCENT = 800;
+const MAX_CANVAS_DEVICE_SIZE = 16384;
 const FONT_FAMILY_KEYS = new Set([
   "auto",
   "manga-dialog",
@@ -122,12 +127,13 @@ const FONT_FAMILY_KEYS = new Set([
   "jp-mincho",
   "classic-serif",
   "classic-sans",
+  "jp-antique",
   "rounded",
   "comic",
   "mono",
 ]);
 const FONT_FAMILY_STACKS = {
-  "manga-dialog": '"BIZ UDPGothic", "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif',
+  "manga-dialog": '"Zen Antique", "BIZ UDPGothic", "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif',
   "manga-narration": '"BIZ UDPMincho", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", "MS PMincho", serif',
   "manga-shout": '"Arial Black", "Yu Gothic UI Semibold", "BIZ UDPGothic", "Noto Sans JP", "Meiryo", sans-serif',
   "manga-soft": '"Hiragino Maru Gothic ProN", "M PLUS Rounded 1c", "Zen Maru Gothic", "Yu Gothic UI", "Meiryo", sans-serif',
@@ -140,6 +146,7 @@ const FONT_FAMILY_STACKS = {
   typewriter: '"Courier Prime", "Courier New", "BIZ UDPMincho", "MS Gothic", monospace',
   "jp-gothic": '"BIZ UDPGothic", "Noto Sans JP", "Yu Gothic UI", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif',
   "jp-mincho": '"BIZ UDPMincho", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", "MS PMincho", serif',
+  "jp-antique": '"Zen Antique", "BIZ UDPMincho", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif',
   "classic-serif": '"Georgia", "Times New Roman", "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif',
   "classic-sans": '"Arial", "Helvetica Neue", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif',
   rounded: '"Hiragino Maru Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif',
@@ -590,11 +597,13 @@ function normalizeObject(raw) {
 
 function normalizeAndClampAllObjects() {
   state.objects = state.objects.map((obj) => normalizeObject(obj));
+  const migratedCount = splitEmbeddedBubbleTexts();
   for (const obj of state.objects) {
     clampObjectBounds(obj);
   }
   const maxId = state.objects.reduce((max, obj) => Math.max(max, Number(obj.id) || 0), 0);
   state.nextId = Math.max(state.nextId, maxId + 1);
+  return migratedCount;
 }
 
 function pushHistory() {
@@ -644,14 +653,47 @@ function syncUndoRedoButtons() {
   els.redoBtn.disabled = state.historyIndex >= state.history.length - 1;
 }
 
+function getZoomBounds() {
+  let minScale = MIN_ZOOM_PERCENT / 100;
+  let maxScale = MAX_ZOOM_PERCENT / 100;
+  if (state.image) {
+    minScale = Math.min(minScale, state.fitScale || minScale);
+    const dpr = window.devicePixelRatio || 1;
+    const maxImageSide = Math.max(state.imageWidth, state.imageHeight, 1);
+    const maxScaleByCanvas = MAX_CANVAS_DEVICE_SIZE / (maxImageSide * dpr);
+    if (Number.isFinite(maxScaleByCanvas) && maxScaleByCanvas > 0) {
+      maxScale = Math.min(maxScale, maxScaleByCanvas);
+    }
+    maxScale = Math.max(maxScale, minScale);
+  }
+  return { minScale, maxScale };
+}
+
+function syncZoomUi() {
+  const { minScale, maxScale } = getZoomBounds();
+  const zoomScale = clamp(safeNumber(state.zoom, 1), minScale, maxScale);
+  const minPercent = Math.max(1, Math.floor(minScale * 100));
+  const maxPercent = Math.max(minPercent, Math.ceil(maxScale * 100));
+  const zoomPercent = clamp(Math.round(zoomScale * 100), minPercent, maxPercent);
+  els.zoomRange.min = String(minPercent);
+  els.zoomRange.max = String(maxPercent);
+  els.zoomRange.value = String(zoomPercent);
+  els.zoomLabel.textContent = `${zoomPercent}%`;
+}
+
+function setZoomScale(scale) {
+  const { minScale, maxScale } = getZoomBounds();
+  state.zoom = clamp(safeNumber(scale, state.fitScale || 1), minScale, maxScale);
+  syncZoomUi();
+}
+
 function getCanvasScale() {
-  return state.fitScale * state.zoom;
+  return state.zoom;
 }
 
 function fitToViewport() {
-  state.zoom = 1;
-  els.zoomRange.value = "100";
-  els.zoomLabel.textContent = "100%";
+  updateCanvasMetrics();
+  setZoomScale(state.fitScale);
   updateCanvasMetrics();
   draw();
 }
@@ -862,12 +904,90 @@ function pointInTemplateBubble(point, obj) {
   return testCtx.isPointInPath(path, localX, localY);
 }
 
-function makeBubble() {
+function textFrameForBubble(obj) {
+  if (obj && obj.renderMode === "template" && obj.templateId) {
+    const template = templateById(obj.templateId);
+    if (template) {
+      const vb = parseViewBox(template.viewBox);
+      const box = template.textBox;
+      const x = obj.x + ((box.x - vb.x) / vb.w) * obj.w;
+      const y = obj.y + ((box.y - vb.y) / vb.h) * obj.h;
+      const w = (box.w / vb.w) * obj.w;
+      const h = (box.h / vb.h) * obj.h;
+      return {
+        x,
+        y,
+        w: Math.max(24, w),
+        h: Math.max(24, h),
+      };
+    }
+  }
+  const padding = Math.max(0, Number(obj && obj.padding) || 0);
+  return {
+    x: obj.x + padding,
+    y: obj.y + padding,
+    w: Math.max(24, obj.w - padding * 2),
+    h: Math.max(24, obj.h - padding * 2),
+  };
+}
+
+function makeTextFromBubble(bubble) {
+  const frame = textFrameForBubble(bubble);
+  return {
+    id: state.nextId++,
+    kind: "text",
+    text: String(bubble.text || ""),
+    x: frame.x,
+    y: frame.y,
+    w: frame.w,
+    h: frame.h,
+    fill: "#ffffff",
+    stroke: "#1b1e24",
+    strokeWidth: 0,
+    useTextBox: false,
+    textColor: colorOrFallback(bubble.textColor, "#111111"),
+    fontSize: Math.max(8, Number(bubble.fontSize) || 24),
+    fontFamily: normalizeFontFamily(bubble.fontFamily),
+    padding: Math.max(0, Math.round((Number(bubble.padding) || 0) * 0.35)),
+    align: bubble.align === "left" ? "left" : "center",
+    opacity: clamp(Math.round(safeNumber(bubble.opacity, 100)), 5, 100),
+    textDirection: normalizeTextDirection(bubble.textDirection),
+  };
+}
+
+function splitEmbeddedBubbleTexts() {
+  if (!Array.isArray(state.objects) || !state.objects.length) {
+    return 0;
+  }
+  const maxExistingId = state.objects.reduce((max, obj) => Math.max(max, Number(obj.id) || 0), 0);
+  if (!Number.isFinite(state.nextId) || state.nextId <= maxExistingId) {
+    state.nextId = maxExistingId + 1;
+  }
+  const additions = [];
+  for (const obj of state.objects) {
+    if (!obj || obj.kind !== "bubble") {
+      continue;
+    }
+    const text = typeof obj.text === "string" ? obj.text : "";
+    if (!text.trim()) {
+      obj.text = "";
+      continue;
+    }
+    additions.push(makeTextFromBubble(obj));
+    obj.text = "";
+  }
+  if (additions.length) {
+    state.objects.push(...additions);
+  }
+  return additions.length;
+}
+
+function makeBubble(catalogItem = null) {
   const w = Math.max(180, state.imageWidth * 0.28);
   const h = Math.max(110, state.imageHeight * 0.16);
   const x = clamp(state.imageWidth * 0.3, 0, state.imageWidth - w);
   const y = clamp(state.imageHeight * 0.2, 0, state.imageHeight - h);
-  return {
+  const bubble = {
     id: state.nextId++,
     kind: "bubble",
     renderMode: "procedural",
@@ -877,7 +997,7 @@ function makeBubble() {
     tailSnap: false,
     tailVisible: true,
     shape: "ellipse",
-    text: "セリフ",
+    text: "",
     x,
     y,
     w,
@@ -890,12 +1010,16 @@ function makeBubble() {
     strokeWidth: 0,
     textColor: "#111111",
     fontSize: Math.max(24, Math.round(Math.min(w, h) * 0.24)),
-    fontFamily: "auto",
+    fontFamily: "jp-antique",
     padding: 22,
     align: "center",
     opacity: 100,
     textDirection: "horizontal",
   };
+  if (catalogItem) {
+    applyCatalogItemToBubble(bubble, catalogItem);
+  }
+  return bubble;
 }
 
 function makeText() {
@@ -906,7 +1030,7 @@ function makeText() {
   return {
     id: state.nextId++,
     kind: "text",
-    text: "テキスト",
+    text: "セリフ",
     x,
     y,
     w,
@@ -917,7 +1041,7 @@ function makeText() {
     useTextBox: false,
     textColor: "#111111",
     fontSize: Math.max(24, Math.round(Math.min(w, h) * 0.35)),
-    fontFamily: "auto",
+    fontFamily: "jp-antique",
     padding: 10,
     align: "left",
     opacity: 100,
@@ -1008,7 +1132,8 @@ function addObject(kind) {
     status("先に画像を読み込んでください。", "err");
     return;
   }
-  const obj = kind === "bubble" ? makeBubble() : makeText();
+  const templateItem = kind === "bubble" ? selectedCatalogItem() : null;
+  const obj = kind === "bubble" ? makeBubble(templateItem) : makeText();
   state.objects.push(obj);
   state.selectedId = obj.id;
   syncTemplateSelectionUi();
@@ -1120,13 +1245,16 @@ async function loadProjectFile(file) {
   state.selectedId = state.objects.length ? state.objects[state.objects.length - 1].id : null;
   state.history = [];
   state.historyIndex = -1;
-  normalizeAndClampAllObjects();
+  const migratedCount = normalizeAndClampAllObjects();
   syncTemplateSelectionUi();
   pushHistory();
   syncPropertyPanel();
   renderLayerList();
   draw();
-  status(`プロジェクトを読み込みました (v${payload.version || 1})。`, "ok");
+  const migratedNote = migratedCount > 0
+    ? ` 旧形式の吹き出し内テキストを ${migratedCount} 件テキストオブジェクトへ分離しました。`
+    : "";
+  status(`プロジェクトを読み込みました (v${payload.version || 1})。${migratedNote}`, "ok");
 }
 
 function exportPng() {
@@ -1691,12 +1819,10 @@ function drawBubble(ctx, obj) {
     const template = templateById(obj.templateId);
     if (template) {
       drawTemplateBubble(ctx, obj, template);
-      drawTextInObject(ctx, obj, true);
       return;
     }
   }
   drawProceduralBubble(ctx, obj);
-  drawTextInObject(ctx, obj, true);
 }
 
 function drawTextObject(ctx, obj) {
@@ -1756,6 +1882,8 @@ function renderScene(ctx, scale, includeSelection) {
     return;
   }
   ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.scale(scale, scale);
   ctx.drawImage(state.image, 0, 0, state.imageWidth, state.imageHeight);
   for (const obj of state.objects) {
@@ -1903,6 +2031,7 @@ function syncPropertyPanel() {
   els.propPanel.classList.remove("hidden");
 
   const isBubble = obj.kind === "bubble";
+  const isText = obj.kind === "text";
   const isTemplateBubble = isBubble && obj.renderMode === "template";
   const isTailVisible = isBubble && obj.tailVisible !== false;
 
@@ -1910,7 +2039,7 @@ function syncPropertyPanel() {
   els.propRenderMode.value = isBubble ? normalizeRenderMode(obj.renderMode) : "procedural";
   els.propTemplateId.value = formatTemplateIdForPanel(obj);
   els.propShape.value = normalizeShape(obj.shape || "ellipse");
-  els.propText.value = obj.text || "";
+  els.propText.value = isText ? (obj.text || "") : "";
   els.propX.value = Math.round(obj.x);
   els.propY.value = Math.round(obj.y);
   els.propW.value = Math.round(obj.w);
@@ -1939,6 +2068,19 @@ function syncPropertyPanel() {
   els.propRenderMode.disabled = !isBubble || state.templateLoadFailed;
   els.propTailVisible.disabled = !isBubble;
   els.propTailSnap.disabled = !isTemplateBubble || !isTailVisible;
+  if (els.propTextField) {
+    els.propTextField.classList.toggle("hidden", !isText);
+  }
+  [els.propFontFamily, els.propFontSize, els.propPadding, els.propAlign, els.propDirection].forEach((input) => {
+    const field = input ? input.closest(".field") : null;
+    if (field) {
+      field.classList.toggle("hidden", !isText);
+    }
+  });
+  const textColorField = els.propTextColor ? els.propTextColor.closest(".field") : null;
+  if (textColorField) {
+    textColorField.classList.toggle("hidden", !isText);
+  }
   els.propShapeWrap.classList.toggle("hidden", !shouldShowShapeSelector(obj));
   els.bubbleTailFields.classList.toggle("hidden", !isBubble);
   els.propTextBoxField.classList.toggle("hidden", isBubble);
@@ -1966,22 +2108,15 @@ function applyPropertyChanges(event) {
     return;
   }
   const targetId = event && event.target ? event.target.id : "";
-  obj.text = els.propText.value;
   obj.x = safeNumber(els.propX.value, 0);
   obj.y = safeNumber(els.propY.value, 0);
   obj.w = safeNumber(els.propW.value, 24);
   obj.h = safeNumber(els.propH.value, 24);
-  obj.fontSize = Math.max(8, safeNumber(els.propFontSize.value, 24));
-  obj.fontFamily = normalizeFontFamily(els.propFontFamily.value);
-  obj.padding = Math.max(0, safeNumber(els.propPadding.value, 0));
   obj.strokeWidth = Math.max(0, safeNumber(els.propStrokeWidth.value, 0));
-  obj.align = els.propAlign.value === "left" ? "left" : "center";
-  obj.textDirection = normalizeTextDirection(els.propDirection.value);
   obj.opacity = clamp(Math.round(safeNumber(els.propOpacity.value, 100)), 5, 100);
   syncOpacityLabel(obj.opacity);
   obj.fill = colorOrFallback(els.propFill.value, "#ffffff");
   obj.stroke = colorOrFallback(els.propStroke.value, "#1b1e24");
-  obj.textColor = colorOrFallback(els.propTextColor.value, "#111111");
 
   if (obj.kind === "bubble") {
     if (targetId === "propRenderMode") {
@@ -2030,6 +2165,13 @@ function applyPropertyChanges(event) {
       obj.tailAnchorId = null;
     }
   } else {
+    obj.text = els.propText.value;
+    obj.fontSize = Math.max(8, safeNumber(els.propFontSize.value, 24));
+    obj.fontFamily = normalizeFontFamily(els.propFontFamily.value);
+    obj.padding = Math.max(0, safeNumber(els.propPadding.value, 0));
+    obj.align = els.propAlign.value === "left" ? "left" : "center";
+    obj.textDirection = normalizeTextDirection(els.propDirection.value);
+    obj.textColor = colorOrFallback(els.propTextColor.value, "#111111");
     obj.useTextBox = Boolean(els.propUseTextBox.checked);
   }
 
@@ -2211,8 +2353,7 @@ async function setBackgroundFromDataUrl(dataUrl) {
   state.imageWidth = img.naturalWidth || img.width;
   state.imageHeight = img.naturalHeight || img.height;
   els.emptyState.classList.add("hidden");
-  updateCanvasMetrics();
-  draw();
+  fitToViewport();
 }
 
 async function loadImageFile(file) {
@@ -2287,8 +2428,7 @@ function bindEvents() {
 
   els.zoomRange.addEventListener("input", () => {
     const ratio = Number(els.zoomRange.value) || 100;
-    state.zoom = ratio / 100;
-    els.zoomLabel.textContent = `${ratio}%`;
+    setZoomScale(ratio / 100);
     updateCanvasMetrics();
     draw();
   });
@@ -2333,7 +2473,16 @@ function bindEvents() {
   window.addEventListener("pointerup", pointerUp);
   window.addEventListener("pointercancel", pointerUp);
   window.addEventListener("resize", () => {
+    const wasFitZoom = state.image && Math.abs(state.zoom - state.fitScale) < 0.001;
     updateCanvasMetrics();
+    if (state.image) {
+      if (wasFitZoom) {
+        setZoomScale(state.fitScale);
+      } else {
+        setZoomScale(state.zoom);
+      }
+      updateCanvasMetrics();
+    }
     draw();
   });
 }
@@ -2349,6 +2498,7 @@ function boot() {
   }
   bindEvents();
   syncUndoRedoButtons();
+  syncZoomUi();
   renderLayerList();
   renderTemplateGrid();
   syncPropertyPanel();

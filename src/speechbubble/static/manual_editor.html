@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>吹き出し手動エディタ</title>
   <style>
+    @font-face {
+      font-family: "Zen Antique";
+      src: url("/assets/fonts/ZenAntique-Regular.ttf?v=3.1.0") format("truetype");
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+    }
+
     :root {
       --bg: #ecf1fb;
       --panel: #ffffff;
@@ -157,6 +165,7 @@
       display: block;
       margin: 0 auto;
       background: transparent;
+      image-rendering: auto;
       touch-action: none;
     }
 
@@ -423,7 +432,7 @@
           <button type="button" id="fitBtn">全体表示</button>
           <div class="zoom-wrap grow">
             <span>拡大率</span>
-            <input id="zoomRange" type="range" min="40" max="260" value="100">
+            <input id="zoomRange" type="range" min="1" max="800" value="100">
             <strong id="zoomLabel">100%</strong>
           </div>
         </div>
@@ -521,7 +530,7 @@
             </div>
           </div>
 
-          <div class="field-grid single" style="margin-top: 8px;">
+          <div id="propTextField" class="field-grid single" style="margin-top: 8px;">
             <div class="field">
               <label>テキスト</label>
               <textarea id="propText"></textarea>
@@ -554,7 +563,7 @@
             </div>
           </div>
 
-          <div class="field-grid" style="margin-top: 8px;">
+          <div id="textTypographyFields" class="field-grid" style="margin-top: 8px;">
             <div class="field">
               <label>フォント</label>
               <select id="propFontFamily">
@@ -572,6 +581,7 @@
                 <option value="typewriter">タイプライター</option>
                 <option value="jp-gothic">和文ゴシック</option>
                 <option value="jp-mincho">和文明朝</option>
+                <option value="jp-antique">和文アンチック</option>
                 <option value="classic-serif">クラシック明朝</option>
                 <option value="classic-sans">クラシックゴシック</option>
                 <option value="rounded">丸ゴシック</option>
@@ -630,8 +640,8 @@
   <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden">
   <input id="projectInput" type="file" accept=".json,application/json" class="hidden">
 
-  <script>window.__APP_VERSION__ = "3.0.0";</script>
-  <script src="/assets/vendor/rough.min.js?v=3.0.0"></script>
-  <script src="/assets/manual_editor.js?v=3.0.0"></script>
+  <script>window.__APP_VERSION__ = "3.1.0";</script>
+  <script src="/assets/vendor/rough.min.js?v=3.1.0"></script>
+  <script src="/assets/manual_editor.js?v=3.1.0"></script>
 </body>
 </html>

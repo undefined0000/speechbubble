@@ -41,7 +41,17 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-speechbubble = ["static/*.html", "static/*.js"]
+speechbubble = [
+  "static/*.html",
+  "static/*.js",
+  "static/vendor/*.js",
+  "static/vendor/*.txt",
+  "static/fonts/*.ttf",
+  "static/fonts/*.txt",
+  "static/bubbles/*.json",
+  "static/bubbles/*.md",
+  "static/bubbles/templates/*.svg",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

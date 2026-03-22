@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import mimetypes
 from pathlib import Path
 
 import uvicorn
@@ -12,6 +13,11 @@ from fastapi.staticfiles import StaticFiles
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 EDITOR_HTML_PATH = STATIC_DIR / "manual_editor.html"
+
+mimetypes.add_type("font/ttf", ".ttf")
+mimetypes.add_type("font/otf", ".otf")
+mimetypes.add_type("font/woff", ".woff")
+mimetypes.add_type("font/woff2", ".woff2")
 
 
 def _load_editor_html() -> str:

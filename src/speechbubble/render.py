@@ -65,6 +65,8 @@ def load_font(font_path: str | None, font_size: int, config: RenderConfig) -> Im
     candidates: list[str] = []
     if font_path:
         candidates.append(font_path)
+    bundled_antique = Path(__file__).resolve().parent / "static" / "fonts" / "ZenAntique-Regular.ttf"
+    candidates.append(str(bundled_antique))
     candidates.extend(config.default_font_candidates)
     for candidate in candidates:
         path = Path(candidate)
